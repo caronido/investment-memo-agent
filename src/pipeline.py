@@ -12,6 +12,7 @@ CLI:
     python -m src.pipeline --transcript data/transcripts/sample_lazo_call1.txt --call-stage 1 --output-dir data/output/lazo/
     python -m src.pipeline --transcript data/transcripts/sample_lazo_call1.txt --skip-evals
     python -m src.pipeline --transcript data/transcripts/sample_lazo_call2.txt --output-dir data/output/lazo/ --company-name Lazo
+    python -m src.pipeline --transcript data/transcripts/sample_lazo_call1.txt --documents data/documents/deck.pdf --output-dir data/output/lazo/
 """
 
 import argparse
@@ -24,6 +25,8 @@ from dotenv import load_dotenv
 
 from src.extraction.extractor import extract_from_transcript
 from src.gap_analysis.analyzer import analyze_gaps
+from src.ingestion.document_processor import extract_from_document
+from src.ingestion.merger import merge_extractions
 from src.memo_generation.generator import generate_memo
 from src.state.manager import StateManager, detect_contradictions
 
@@ -44,6 +47,7 @@ def run_pipeline(
     client: anthropic.Anthropic | None = None,
     company_name: str | None = None,
     use_state: bool = True,
+    documents: list[str | Path] | None = None,
 ) -> dict:
     """Run the full memo-agent pipeline on a transcript.
 
@@ -55,6 +59,7 @@ def run_pipeline(
         client: Optional shared Anthropic client.
         company_name: Company name for state management. Auto-detected from extraction if None.
         use_state: If True and output_dir provided, persist state across calls.
+        documents: Optional list of PDF file paths to process and merge with extraction.
 
     Returns:
         Dict with keys: extraction, gap_analysis, memo, contradictions, eval_report (if not skipped).
@@ -71,6 +76,31 @@ def run_pipeline(
     detected_stage = extraction.get("call_stage", call_stage or 1)
     result["extraction"] = extraction
     _log(f"  Extraction complete. Call stage: {detected_stage}, keys: {list(extraction.keys())}")
+
+    # --- Document enrichment (optional) ---
+    if documents:
+        _log(f"Processing {len(documents)} document(s) for enrichment...")
+        for doc_path in documents:
+            doc_path = Path(doc_path)
+            _log(f"  Extracting from {doc_path.name}...")
+            doc_extraction = extract_from_document(doc_path, detected_stage, client=client)
+            doc_fields = len([k for k, v in doc_extraction.items() if v is not None and k != "call_stage"])
+            _log(f"  Document extraction: {doc_fields} fields populated")
+
+            extraction = merge_extractions(extraction, doc_extraction)
+            stats = extraction.get("_enrichment_stats", {})
+            _log(
+                f"  Merged: {stats.get('transcript_fields', 0)} transcript fields, "
+                f"{stats.get('document_only', 0)} new from document, "
+                f"{stats.get('total_unique_fields', 0)} total unique"
+            )
+
+            discrepancies = extraction.get("_discrepancies", [])
+            if discrepancies:
+                _log(f"  Flagged {len(discrepancies)} discrepancy(ies) between sources")
+
+        result["extraction"] = extraction
+        result["document_extractions"] = [Path(d).name for d in documents]
 
     # --- Initialize state manager ---
     if use_state and output_dir:
@@ -256,6 +286,13 @@ def _write_outputs(result: dict, call_stage: int, output_dir: str | Path):
     memo_path.write_text(result["memo"])
     _log(f"  Wrote {memo_path}")
 
+    # Document discrepancies
+    discrepancies = result["extraction"].get("_discrepancies", [])
+    if discrepancies:
+        disc_path = output_dir / f"discrepancies_call{call_stage}.json"
+        disc_path.write_text(json.dumps(discrepancies, indent=2, ensure_ascii=False))
+        _log(f"  Wrote {disc_path}")
+
     # Contradictions
     contradictions = result.get("contradictions", [])
     if contradictions:
@@ -328,6 +365,11 @@ def main():
         action="store_true",
         help="Disable state management (run call in isolation).",
     )
+    parser.add_argument(
+        "--documents",
+        nargs="+",
+        help="PDF file paths to process and merge with transcript extraction.",
+    )
 
     args = parser.parse_args()
 
@@ -346,6 +388,7 @@ def main():
         skip_evals=args.skip_evals,
         company_name=args.company_name,
         use_state=not args.no_state,
+        documents=args.documents,
     )
 
     # Print summary table

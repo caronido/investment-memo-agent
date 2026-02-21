@@ -171,11 +171,11 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 ## Current Status
 
-**Completed sessions:** 0-9
+**Completed sessions:** 0-10
 
-**Current session:** 9 (Multi-Call State Management) — completed
+**Current session:** 10 (Document Ingestion) — completed
 
-**Next up:** Session 10 (PDF Decks & Data Room Ingestion)
+**Next up:** Session 11 (Slack Bot Interface)
 
 > Update this section at the end of every Claude Code session.
 
@@ -197,12 +197,19 @@ python -m src.memo_generation.generator --extraction data/output/extraction.json
 # Run full pipeline
 python -m src.pipeline --transcript data/transcripts/sample.txt --call-stage 1 --output-dir data/output/lazo/
 
+# Run pipeline with document enrichment
+python -m src.pipeline --transcript data/transcripts/sample.txt --documents data/documents/deck.pdf --output-dir data/output/lazo/
+
+# Run document extraction standalone
+python -m src.ingestion.document_processor --pdf data/documents/deck.pdf --call-stage 1 --output data/output/deck_extraction.json
+
 # Run evals
 python -m evals.eval_extraction --transcript data/transcripts/sample.txt --ground-truth data/ground_truth/sample_gt.json
 python -m evals.eval_gap_analysis --extraction data/output/extraction.json --call-stage 1
 python -m evals.eval_memo --memo data/output/memo_draft.md --extraction data/output/extraction.json
 python -m evals.eval_pipeline
 python -m evals.eval_pipeline --transcript data/transcripts/sample_lazo_call1.txt
+python -m evals.eval_ingestion --transcript data/transcripts/sample_lazo_call1.txt --pdf data/documents/English_LAZO_Pitch_Deck_design_ENERO..pdf
 python -m evals.run_all
 
 # Run Slack bot (local, socket mode)
@@ -238,7 +245,7 @@ Track what was built, what was learned, and what to carry forward.
 | 7 | Memo eval suite: memo_judge.py (4-dimension LLM judge), eval_memo.py (7 programmatic checks + judge), ab_test_memo.py (A/B test runner), prompt_variants.py (3 variants). v3 skeptical analyst wins, set as default. Added load_dotenv() fix to all judge files. | Skeptical analyst lens improves analytical quality (3.0→4.0) without hurting factual accuracy. Explicit "N/5" format instruction needed for scoring rubric compliance. Factual accuracy is the highest bar — winner sorted by fact first. | v3 winner: 4.5/5 overall (fact=5.0, tmpl=5.0, anal=4.0, comp=4.0). 7/7 programmatic. |
 | 8 | End-to-end pipeline: src/pipeline.py (run_pipeline orchestrator with shared client, --skip-evals flag, file output), evals/eval_pipeline.py (cross-transcript pipeline eval runner with combined summary table). CLI for both modules. | Deferred eval imports keep --skip-evals fast. Progress to stderr / memo to stdout enables piping. Single shared Anthropic client across all stages avoids repeated init. | Pending live run |
 | 9 | Multi-call state management: StateManager (JSON-backed per-company state), detect_contradictions (fuzzy field comparison), pipeline wiring (previous_extractions + existing_memo), eval_multicall.py (7 progression checks: TBD decreasing, all calls processed, content preservation, contradiction detection, memo growth, state file valid, memo versions stored). Added `from __future__ import annotations` for Python 3.9 compat. | State accumulation works via sorted calls_processed list. Fuzzy matching (strip $, commas, substring) needed for contradiction detection across varied extraction formats. `use_state` flag keeps backward compat for isolated runs. | Pending live run |
-| 10 | | | |
+| 10 | Document ingestion: document_processor.py (PDF extraction via Claude vision with page-as-image and raw PDF fallback), merger.py (source-attributed field merge with discrepancy detection, k/m/b suffix-aware fuzzy matching), pipeline --documents flag, eval_ingestion.py (7 checks: enrichment gain, new fields, source attribution, combined sources, enrichment stats, discrepancy tracking, deck source type). | PDF-as-document fallback avoids pdf2image dependency. Scalar merge uses {value, source, page} attribution dicts. Array merge deduplicates by name for objects, by normalized value for scalars. Numeric suffix parsing (k/m/b) needed for cross-source fuzzy matching. | 7/7 programmatic (synthetic data) |
 | 11 | | | |
 | 12 | | | |
 | 13 | | | |
