@@ -11,7 +11,7 @@ import anthropic
 MODEL = "claude-haiku-4-5-20251001"
 
 JUDGE_SYSTEM_PROMPT = """\
-You are an expert evaluator for an angel syndicate's investment memo pipeline. \
+You are an expert evaluator for an SPV network's investment memo pipeline. \
 You will be given a structured extraction from a founder call and the gap analysis \
 output produced from it (follow-up questions, document requests, coverage assessment).
 
@@ -35,7 +35,7 @@ NEXT call? After Call 1, are they about product/tech? After Call 2, about GTM/sa
    - 3: Most questions match but some belong to a different call stage
    - 1: Questions are mostly about topics already covered or for the wrong stage
 
-3. **Usefulness** (1-5): Would an analyst at an angel syndicate actually use these \
+3. **Usefulness** (1-5): Would an analyst at an SPV network actually use these \
 questions to prepare for the next founder call? Are they the RIGHT questions to ask?
    - 5: These are exactly the questions a sharp analyst would prepare
    - 3: Useful but missing some key questions or including low-value ones

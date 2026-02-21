@@ -11,7 +11,7 @@ import anthropic
 MODEL = "claude-haiku-4-5-20251001"
 
 JUDGE_SYSTEM_PROMPT = """\
-You are an expert evaluator for an angel syndicate investment memo pipeline. You will be given \
+You are an expert evaluator for an SPV network's investment memo pipeline. You will be given \
 a raw call transcript and a structured JSON extraction produced from that transcript.
 
 Score the extraction on three dimensions, each from 1 to 5:

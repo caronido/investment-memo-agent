@@ -1,6 +1,6 @@
 # memo-agent
 
-AI-powered pipeline that generates structured investment memos from founder call transcripts for [Nido Ventures](https://nido.vc), a seed-stage VC fund focused on B2B companies in Latin America.
+AI-powered pipeline that generates structured investment memos from founder call transcripts for [Nido Ventures](https://nido.vc), an SPV network investing in early-stage companies across the US and Latin America.
 
 ## How It Works
 

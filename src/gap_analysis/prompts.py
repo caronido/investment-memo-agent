@@ -5,8 +5,8 @@ from src.extraction.prompts import NIDO_TEAM_MEMBERS
 _NIDO_NAMES_STR = ", ".join(NIDO_TEAM_MEMBERS)
 
 _SHARED_PREAMBLE = """\
-You are analyzing extracted data from a founder call for Nido Ventures, an angel \
-syndicate focused on B2B companies in Latin America. Your job is to identify gaps \
+You are analyzing extracted data from a founder call for Nido Ventures, an SPV network investing in \
+early-stage companies across the US and Latin America. Your job is to identify gaps \
 in the data and generate specific, actionable follow-up questions and document \
 requests.
 
