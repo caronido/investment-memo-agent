@@ -5,8 +5,11 @@ from __future__ import annotations
 Creates formatted Google Docs from markdown memo text using a service account.
 The doc is placed in a shared Google Drive folder.
 
-Requires:
-    GOOGLE_SERVICE_ACCOUNT_KEY_PATH — path to service account JSON key file
+Credentials can be provided two ways:
+    1. GOOGLE_SERVICE_ACCOUNT_KEY_PATH — path to JSON key file (local dev)
+    2. GOOGLE_SERVICE_ACCOUNT_KEY_JSON — raw JSON string (production/Railway)
+
+Also requires:
     GOOGLE_DRIVE_FOLDER_ID — shared Google Drive folder for memos
 
 Setup:
@@ -16,6 +19,7 @@ Setup:
     4. Set the env vars above
 """
 
+import json
 import logging
 import os
 import re
@@ -30,10 +34,11 @@ logger = logging.getLogger(__name__)
 
 def is_configured() -> bool:
     """Check if Google Docs export is configured."""
-    return bool(
+    has_credentials = bool(
         os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_PATH")
-        and os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+        or os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_JSON")
     )
+    return has_credentials and bool(os.environ.get("GOOGLE_DRIVE_FOLDER_ID"))
 
 
 class GoogleDocsClient:
@@ -47,22 +52,35 @@ class GoogleDocsClient:
     def __init__(
         self,
         key_path: str | None = None,
+        key_json: str | None = None,
         folder_id: str | None = None,
     ):
-        self.key_path = key_path or os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_PATH")
         self.folder_id = folder_id or os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-
-        if not self.key_path:
-            raise ValueError("GOOGLE_SERVICE_ACCOUNT_KEY_PATH not set")
         if not self.folder_id:
             raise ValueError("GOOGLE_DRIVE_FOLDER_ID not set")
 
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
 
-        credentials = service_account.Credentials.from_service_account_file(
-            self.key_path, scopes=self.SCOPES
-        )
+        # Load credentials: JSON string (production) or file path (local dev)
+        raw_json = key_json or os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_JSON")
+        raw_path = key_path or os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_PATH")
+
+        if raw_json:
+            info = json.loads(raw_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                info, scopes=self.SCOPES
+            )
+        elif raw_path:
+            credentials = service_account.Credentials.from_service_account_file(
+                raw_path, scopes=self.SCOPES
+            )
+        else:
+            raise ValueError(
+                "Set GOOGLE_SERVICE_ACCOUNT_KEY_JSON (production) "
+                "or GOOGLE_SERVICE_ACCOUNT_KEY_PATH (local dev)"
+            )
+
         self._docs_service = build("docs", "v1", credentials=credentials)
         self._drive_service = build("drive", "v3", credentials=credentials)
 
