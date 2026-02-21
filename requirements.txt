@@ -1,0 +1,6 @@
+anthropic
+python-dotenv
+slack-bolt
+httpx
+google-api-python-client
+google-auth
