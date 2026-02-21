@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Call 3 Extraction - GTM Validation",
+  "description": "Structured extraction from Call 3 (GTM Validation): ICP reasoning, sales cycles, champions, willingness to pay, competitive strategy, stickiness.",
+  "type": "object",
+  "properties": {
+    "call_stage": {
+      "type": "integer",
+      "const": 3
+    },
+    "gtm_strategy": {
+      "type": "object",
+      "properties": {
+        "icp_definition": { "type": ["string", "null"], "description": "Detailed ideal customer profile with reasoning" },
+        "icp_reasoning": { "type": ["string", "null"], "description": "Why this ICP was chosen" },
+        "sales_motion": { "type": ["string", "null"], "description": "PLG, sales-led, hybrid, etc." },
+        "sales_cycle_length": { "type": ["string", "null"] },
+        "deal_size": { "type": ["string", "null"], "description": "Average contract value" },
+        "champion_profile": { "type": ["string", "null"], "description": "Who inside the customer org champions the purchase" },
+        "decision_maker": { "type": ["string", "null"], "description": "Who signs the check" },
+        "acquisition_channels": { "type": "array", "items": { "type": "string" } },
+        "willingness_to_pay": { "type": ["string", "null"], "description": "Evidence of customer willingness to pay" }
+      }
+    },
+    "traction_metrics": {
+      "type": "object",
+      "properties": {
+        "client_list": { "type": "array", "items": { "type": "string" } },
+        "pipeline": { "type": ["string", "null"], "description": "Current sales pipeline" },
+        "cac": { "type": ["string", "null"] },
+        "ltv": { "type": ["string", "null"] },
+        "churn_rate": { "type": ["string", "null"] },
+        "nrr": { "type": ["string", "null"], "description": "Net revenue retention" },
+        "growth_rate": { "type": ["string", "null"] },
+        "monthly_active_users": { "type": ["string", "null"] }
+      }
+    },
+    "stickiness": {
+      "type": "object",
+      "properties": {
+        "switching_costs": { "type": ["string", "null"] },
+        "integration_depth": { "type": ["string", "null"] },
+        "workflow_dependency": { "type": ["string", "null"], "description": "How embedded the product becomes in customer workflows" },
+        "data_lock_in": { "type": ["string", "null"] }
+      }
+    },
+    "competitive_strategy": {
+      "type": "object",
+      "properties": {
+        "positioning": { "type": ["string", "null"] },
+        "competitive_response": { "type": ["string", "null"], "description": "How they respond to competitive threats" },
+        "win_rate": { "type": ["string", "null"] },
+        "loss_reasons": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "financial_review": {
+      "type": "object",
+      "properties": {
+        "revenue": { "type": ["string", "null"] },
+        "burn_rate": { "type": ["string", "null"] },
+        "runway": { "type": ["string", "null"] },
+        "path_to_profitability": { "type": ["string", "null"] },
+        "financial_model_assessment": { "type": ["string", "null"] }
+      }
+    },
+    "concerns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "document_requests": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Documents to request: client list, sales metrics (CAC, LTV)"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": { "type": "string" },
+          "source_type": { "type": "string", "enum": ["transcript", "deck", "financial_model", "other"] },
+          "quote": { "type": "string" }
+        }
+      }
+    }
+  },
+  "required": ["call_stage", "gtm_strategy"]
+}

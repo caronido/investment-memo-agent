@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Call 1 Extraction - Founder Story",
+  "description": "Structured extraction from Call 1 (Founder Story): founder background, business model, traction, ICP, round dynamics.",
+  "type": "object",
+  "properties": {
+    "call_stage": {
+      "type": "integer",
+      "const": 1
+    },
+    "company": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "one_liner": { "type": "string", "description": "One-sentence description of what the company does" },
+        "industry": { "type": "string" },
+        "geography": { "type": "string", "description": "Primary market/region" },
+        "stage": { "type": "string", "description": "e.g., pre-seed, seed, Series A" },
+        "founded_year": { "type": ["integer", "null"] }
+      },
+      "required": ["name", "one_liner"]
+    },
+    "founders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "background": { "type": "string", "description": "Professional background and relevant experience" },
+          "founder_market_fit": { "type": "string", "description": "Why this person is uniquely suited to build this" },
+          "linkedin_url": { "type": ["string", "null"] }
+        },
+        "required": ["name", "role", "background"]
+      }
+    },
+    "round_dynamics": {
+      "type": "object",
+      "properties": {
+        "raising_amount": { "type": ["string", "null"] },
+        "valuation": { "type": ["string", "null"] },
+        "instrument": { "type": ["string", "null"], "description": "SAFE, priced round, convertible note, etc." },
+        "lead_investor": { "type": ["string", "null"] },
+        "other_investors": { "type": "array", "items": { "type": "string" } },
+        "nido_check_size": { "type": ["string", "null"] },
+        "use_of_funds": { "type": ["string", "null"] }
+      }
+    },
+    "business_model": {
+      "type": "object",
+      "properties": {
+        "revenue_model": { "type": ["string", "null"], "description": "SaaS, marketplace, transactional, etc." },
+        "pricing": { "type": ["string", "null"] },
+        "target_customer": { "type": ["string", "null"], "description": "ICP description" },
+        "value_proposition": { "type": ["string", "null"] }
+      }
+    },
+    "traction": {
+      "type": "object",
+      "properties": {
+        "arr_mrr": { "type": ["string", "null"] },
+        "customers": { "type": ["string", "null"], "description": "Number and type of customers" },
+        "growth_rate": { "type": ["string", "null"] },
+        "key_metrics": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "market": {
+      "type": "object",
+      "properties": {
+        "tam": { "type": ["string", "null"] },
+        "sam": { "type": ["string", "null"] },
+        "som": { "type": ["string", "null"] },
+        "market_drivers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "investment_thesis": {
+      "type": ["string", "null"],
+      "description": "Why this is a compelling opportunity"
+    },
+    "concerns": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Red flags, risks, or open questions from this call"
+    },
+    "document_requests": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Documents to request: cap table, financial model, market sizing, competitive landscape, incorporation docs"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": { "type": "string" },
+          "source_type": { "type": "string", "enum": ["transcript", "deck", "financial_model", "other"] },
+          "quote": { "type": "string" }
+        }
+      },
+      "description": "Source attribution for key data points"
+    }
+  },
+  "required": ["call_stage", "company", "founders"]
+}

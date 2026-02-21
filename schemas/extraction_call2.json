@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Call 2 Extraction - Product Deep Dive",
+  "description": "Structured extraction from Call 2 (Product Deep Dive): industry status quo, product demo, technical architecture, unit economics.",
+  "type": "object",
+  "properties": {
+    "call_stage": {
+      "type": "integer",
+      "const": 2
+    },
+    "problem_statement": {
+      "type": "object",
+      "properties": {
+        "industry_status_quo": { "type": ["string", "null"], "description": "How the industry currently operates without this solution" },
+        "pain_points": { "type": "array", "items": { "type": "string" } },
+        "who_suffers": { "type": ["string", "null"], "description": "Who experiences the pain and how" },
+        "cost_of_inaction": { "type": ["string", "null"], "description": "What happens if the problem isn't solved" }
+      }
+    },
+    "product": {
+      "type": "object",
+      "properties": {
+        "description": { "type": ["string", "null"], "description": "What the product does in detail" },
+        "key_features": { "type": "array", "items": { "type": "string" } },
+        "user_workflow": { "type": ["string", "null"], "description": "How users interact with the product" },
+        "demo_observations": { "type": ["string", "null"], "description": "Notes from product demo if shown" },
+        "product_stage": { "type": ["string", "null"], "description": "MVP, beta, GA, etc." }
+      }
+    },
+    "technology": {
+      "type": "object",
+      "properties": {
+        "tech_stack": { "type": ["string", "null"] },
+        "architecture": { "type": ["string", "null"], "description": "High-level technical architecture" },
+        "defensibility": { "type": ["string", "null"], "description": "Technical moats, proprietary data, network effects" },
+        "ai_ml_usage": { "type": ["string", "null"], "description": "How AI/ML is used, if applicable" },
+        "integrations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "unit_economics": {
+      "type": "object",
+      "properties": {
+        "cac": { "type": ["string", "null"] },
+        "ltv": { "type": ["string", "null"] },
+        "gross_margin": { "type": ["string", "null"] },
+        "payback_period": { "type": ["string", "null"] },
+        "expansion_revenue": { "type": ["string", "null"] }
+      }
+    },
+    "competitive_landscape": {
+      "type": "object",
+      "properties": {
+        "direct_competitors": { "type": "array", "items": { "type": "string" } },
+        "indirect_competitors": { "type": "array", "items": { "type": "string" } },
+        "differentiation": { "type": ["string", "null"] },
+        "right_to_win": { "type": ["string", "null"], "description": "Why this team/product wins against alternatives" }
+      }
+    },
+    "concerns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "document_requests": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Documents to request: tech memo, product roadmap, hardware memo if applicable"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": { "type": "string" },
+          "source_type": { "type": "string", "enum": ["transcript", "deck", "financial_model", "other"] },
+          "quote": { "type": "string" }
+        }
+      }
+    }
+  },
+  "required": ["call_stage", "product"]
+}

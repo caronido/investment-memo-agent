@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memo-agent"
+version = "0.1.0"
+description = "AI-powered investment memo generator from founder call transcripts"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "python-dotenv",
+    "slack-bolt",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["src*", "evals*", "schemas*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
