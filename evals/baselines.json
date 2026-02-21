@@ -1,0 +1,20 @@
+{
+  "sample_lazo_call1.txt": {
+    "call_stage": 1,
+    "programmatic_passed": 10,
+    "programmatic_total": 10,
+    "completeness": 4,
+    "accuracy": 4,
+    "signal_to_noise": 4,
+    "overall_score": 4.0
+  },
+  "sample_lazo_call2.txt": {
+    "call_stage": 2,
+    "programmatic_passed": 4,
+    "programmatic_total": 4,
+    "completeness": 4,
+    "accuracy": 5,
+    "signal_to_noise": 3,
+    "overall_score": 4.0
+  }
+}

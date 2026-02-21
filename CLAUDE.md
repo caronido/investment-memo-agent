@@ -171,11 +171,11 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 ## Current Status
 
-**Completed sessions:** None yet (starting from Session 0)
+**Completed sessions:** 0 (Scaffolding), 1 (Transcript Extraction), 2 (Extraction Eval Suite)
 
-**Current session:** 0 (Project Scaffolding)
+**Current session:** 2 (Extraction Eval Suite) — completed
 
-**Next up:** Session 1 (Transcript Extraction)
+**Next up:** Session 3 (Extraction A/B Testing)
 
 > Update this section at the end of every Claude Code session.
 
@@ -226,9 +226,9 @@ Track what was built, what was learned, and what to carry forward.
 
 | Session | What Was Built | Key Learnings | Eval Scores |
 |---------|---------------|---------------|-------------|
-| 0 | Scaffolding | — | — |
-| 1 | | | |
-| 2 | | | |
+| 0 | Scaffolding | Not applicable | Not applicable |
+| 1 | Implemented transcript extraction | Added a new schema for call 4 and updated the extractor to handle it. This allows for more flexible extraction of data from calls that don't fit the standard 3-call sequence and handles the case when there are more than 3 calls. | Not applicable |
+| 2 | Extraction eval suite: extraction_judge.py (LLM-as-judge with Haiku), eval_extraction.py (programmatic + judge + runner with summary table), ground truth for Lazo call 1, baselines.json | Flexible GT matching (substring/contains) works well for varied extraction wording. Pre-computed extractions speed up eval runs. | Call 1: 10/10 programmatic, 4.0/5 judge. Call 2: 4/4 programmatic, 4.0/5 judge |
 | 3 | | | |
 | 4 | | | |
 | 5 | | | |
