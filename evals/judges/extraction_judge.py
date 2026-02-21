@@ -7,6 +7,9 @@ signal-to-noise ratio.
 import json
 
 import anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
 
 MODEL = "claude-haiku-4-5-20251001"
 

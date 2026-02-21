@@ -171,11 +171,11 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 ## Current Status
 
-**Completed sessions:** 0-6
+**Completed sessions:** 0-7
 
-**Current session:** 6 (Memo Generation) — completed
+**Current session:** 7 (Memo Evals + Prompt Optimization) — completed
 
-**Next up:** Session 7 (Memo Evals + A/B Testing)
+**Next up:** Session 8 (End-to-End Pipeline)
 
 > Update this section at the end of every Claude Code session.
 
@@ -233,7 +233,7 @@ Track what was built, what was learned, and what to carry forward.
 | 4 | Gap analysis module: analyzer.py + prompts.py with call-stage-aware question generation. After Call 1 focuses on product/tech for Call 2, after Call 2 focuses on GTM for Call 3, after Call 3 only remaining items. | Call-stage-aware prompting produces specific, non-generic questions grounded in actual extraction data. Memo template section definitions are key context for gap identification. | Lazo Call 1: 12 questions, 6 doc requests, 5 data quality flags |
 | 5 | Gap analysis evals: eval_gap_analysis.py (programmatic + judge), gap_judge.py (specificity, stage-appropriateness, usefulness). 8 programmatic checks including stage targeting and doc alignment. | Keyword-group matching works better than exact phrases for doc alignment. Stage targeting check (60% threshold) catches misaligned questions. | Lazo Call 1: 8/8 programmatic, 5.0/5 judge (spec=5, stage=5, use=5) |
 | 6 | Memo generator: generator.py + prompts.py (initial gen + update flow). Supports existing_memo param for multi-call updates. Updated all scope refs: Nido is an SPV network investing in early-stage companies across US and LatAm. | Section guide approach (WRITE vs TBD per call stage) produces well-structured memos. 8192 max_tokens needed for full memo output. | Lazo Call 1: 13 sections, 15 TBD placeholders, readable draft |
-| 7 | | | |
+| 7 | Memo eval suite: memo_judge.py (4-dimension LLM judge), eval_memo.py (7 programmatic checks + judge), ab_test_memo.py (A/B test runner), prompt_variants.py (3 variants). v3 skeptical analyst wins, set as default. Added load_dotenv() fix to all judge files. | Skeptical analyst lens improves analytical quality (3.0→4.0) without hurting factual accuracy. Explicit "N/5" format instruction needed for scoring rubric compliance. Factual accuracy is the highest bar — winner sorted by fact first. | v3 winner: 4.5/5 overall (fact=5.0, tmpl=5.0, anal=4.0, comp=4.0). 7/7 programmatic. |
 | 8 | | | |
 | 9 | | | |
 | 10 | | | |
