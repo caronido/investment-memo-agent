@@ -13,6 +13,7 @@ API docs: https://docs.attio.com/rest-api
 
 import logging
 import os
+import re
 from typing import Any
 
 import httpx
@@ -215,6 +216,134 @@ class AttioClient:
 
         return results
 
+    def get_deal_entry(self, record_id: str, list_slug: str = "all_deals") -> dict | None:
+        """Query an Attio list for the entry belonging to a company.
+
+        Args:
+            record_id: UUID of the parent company record.
+            list_slug: Attio list slug (default "all_deals").
+
+        Returns:
+            Dict with flattened entry values and ``entry_id``, or None if
+            no entry is found.
+        """
+        try:
+            response = self._client.post(
+                f"/lists/{list_slug}/entries/query",
+                json={
+                    "filter": {
+                        "parent_record_id": record_id,
+                    },
+                    "limit": 1,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            entries = data.get("data", [])
+            if not entries:
+                return None
+
+            entry = entries[0]
+            entry_id = entry.get("id", {}).get("entry_id")
+            values = _flatten_values(entry.get("values", {}))
+            values["entry_id"] = entry_id
+            return values
+
+        except Exception as e:
+            logger.warning("Failed to fetch deal entry for %s: %s", record_id, e)
+            return None
+
+    def update_deal_entry(
+        self,
+        entry_id: str,
+        updates: dict,
+        list_slug: str = "all_deals",
+    ) -> None:
+        """Write field values back to a deal entry.
+
+        Only updates fields that have new non-None values.
+
+        Args:
+            entry_id: UUID of the list entry.
+            updates: Dict of {attio_field_slug: value} to write.
+            list_slug: Attio list slug (default "all_deals").
+        """
+        # Filter out None/empty values
+        filtered = {k: v for k, v in updates.items() if v is not None and v != ""}
+
+        if not filtered:
+            logger.info("No non-empty values to write back to Attio")
+            return
+
+        try:
+            response = self._client.patch(
+                f"/lists/{list_slug}/entries/{entry_id}",
+                json={"values": filtered},
+            )
+            response.raise_for_status()
+            logger.info("Updated Attio deal entry %s: %s", entry_id, list(filtered.keys()))
+        except Exception as e:
+            logger.warning("Failed to update deal entry %s: %s", entry_id, e)
+
+    def extract_document_urls_from_notes(
+        self, record_id: str, exclude_url: str | None = None,
+    ) -> list[dict]:
+        """Scan all notes for a company and extract document URLs.
+
+        Looks for Google Drive links, DocSend links, and direct PDF links
+        in note markdown content.
+
+        Args:
+            record_id: UUID of the company record.
+            exclude_url: URL to exclude (e.g. the deal's pitch_deck_link).
+
+        Returns:
+            List of dicts with: url, source ("attio_note"), note_title.
+        """
+        notes = self.get_notes(record_id)
+
+        url_patterns = [
+            r"https?://drive\.google\.com/file/d/[a-zA-Z0-9_-]+[^\s\)\"]*",
+            r"https?://docs\.google\.com/(?:presentation|document|spreadsheets)/d/[a-zA-Z0-9_-]+[^\s\)\"]*",
+            r"https?://drive\.google\.com/open\?id=[a-zA-Z0-9_-]+[^\s\)\"]*",
+            r"https?://(?:www\.)?docsend\.com/view/[a-zA-Z0-9_-]+[^\s\)\"]*",
+            r"https?://[^\s\)\"]+\.pdf(?:\?[^\s\)\"]*)?",
+        ]
+        combined_pattern = "|".join(f"({p})" for p in url_patterns)
+
+        results = []
+        seen_urls: set[str] = set()
+
+        # Normalize exclude URL for comparison
+        exclude_normalized = exclude_url.rstrip("/").lower() if exclude_url else None
+
+        for note in notes:
+            content = note.get("content_markdown", "") or note.get("content_plaintext", "")
+            if not content:
+                continue
+
+            for match in re.finditer(combined_pattern, content):
+                url = match.group(0).rstrip(".,;)")
+                url_normalized = url.rstrip("/").lower()
+
+                if url_normalized in seen_urls:
+                    continue
+                if exclude_normalized and url_normalized == exclude_normalized:
+                    continue
+
+                seen_urls.add(url_normalized)
+                results.append({
+                    "url": url,
+                    "source": "attio_note",
+                    "note_title": note.get("title", "Untitled"),
+                })
+
+        logger.info(
+            "Found %d document URLs in notes for record %s", len(results), record_id,
+        )
+        return results
+
     def search_and_get_company(self, query: str) -> dict | None:
         """Search for a company by domain (preferred) or name, and return full details.
 
@@ -225,7 +354,8 @@ class AttioClient:
             query: Domain (e.g., "lazo.us") or company name.
 
         Returns:
-            Dict with: record_id, name, web_url, values, transcripts.
+            Dict with: record_id, name, web_url, values, transcripts,
+            deal (dict or None), deck_url (str or None).
             None if company not found.
         """
         if "." in query:
@@ -247,6 +377,16 @@ class AttioClient:
         company = self.get_company(record_id)
         company["name"] = top.get("name", "")
         company["transcripts"] = self.find_transcripts(record_id)
+
+        # Fetch deal data from the All Deals list
+        deal = self.get_deal_entry(record_id)
+        company["deal"] = deal
+        company["deck_url"] = None
+        if deal:
+            # Extract deck URL from Pitch Deck Link field
+            deck_link = deal.get("pitch_deck_link") or deal.get("pitch_deck") or deal.get("deck_link")
+            if deck_link:
+                company["deck_url"] = deck_link
 
         return company
 
@@ -304,6 +444,12 @@ def _flatten_values(values: dict[str, Any]) -> dict[str, Any]:
             flat[attr_name] = entry.get("value")
         elif attr_type == "location":
             flat[attr_name] = entry.get("line_1", "")
+        elif attr_type == "personal-name":
+            first = entry.get("first_name", "")
+            last = entry.get("last_name", "")
+            flat[attr_name] = f"{first} {last}".strip()
+        elif attr_type == "interaction":
+            flat[attr_name] = entry.get("interacted_at")
         else:
             # Fallback: try common value keys
             flat[attr_name] = entry.get("value", entry.get("original_value"))

@@ -46,6 +46,7 @@ class StateManager:
             "gap_analyses": {},
             "memos": {},
             "contradictions": {},
+            "documents_processed": [],
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -117,6 +118,32 @@ class StateManager:
     def has_processed_call(self, call_stage: int) -> bool:
         """Check if a call stage has already been processed."""
         return call_stage in self._state["calls_processed"]
+
+    def add_processed_document(self, doc_name: str, source: str = "drive") -> None:
+        """Record a document as processed.
+
+        Args:
+            doc_name: Name or identifier of the document.
+            source: Where it came from — 'drive', 'attio', or 'deck_url'.
+        """
+        if "documents_processed" not in self._state:
+            self._state["documents_processed"] = []
+
+        self._state["documents_processed"].append({
+            "name": doc_name,
+            "source": source,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+        })
+        self.save()
+
+    def is_document_processed(self, doc_name: str) -> bool:
+        """Check if a document has already been processed."""
+        docs = self._state.get("documents_processed", [])
+        return any(d.get("name") == doc_name for d in docs)
+
+    def get_processed_documents(self) -> list[dict]:
+        """Return list of all processed documents."""
+        return list(self._state.get("documents_processed", []))
 
     @property
     def state(self) -> dict:

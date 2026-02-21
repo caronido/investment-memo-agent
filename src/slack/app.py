@@ -16,6 +16,7 @@ import logging
 import os
 import threading
 import traceback
+from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
@@ -29,7 +30,12 @@ from src.slack.formatters import (
     build_transcript_modal,
     format_acknowledgment,
     format_attio_company,
+    format_attio_writeback,
     format_call_skipped,
+    format_deal_summary,
+    format_deck_enriched,
+    format_deck_progress,
+    format_document_checklist,
     format_error,
     format_eval_report,
     format_extraction_summary,
@@ -128,16 +134,90 @@ def _register_handlers(bolt_app: App):
                     # Found company with transcripts — run pipeline directly
                     transcripts = company["transcripts"]
                     resolved_name = company.get("name", company_name)
+                    deck_url = company.get("deck_url")
+                    deal = company.get("deal")
+                    record_id = company.get("record_id")
+
                     blocks = format_attio_company(company)
+                    # Show deal data if available
+                    if deal:
+                        deal_blocks = format_deal_summary(deal)
+                        blocks.extend(deal_blocks)
+
+                    # --- Create/get deal folder & discover documents ---
+                    deal_folder = None
+                    doc_sources: list[dict] = []
+
+                    try:
+                        from src.integrations.google_docs import (
+                            GoogleDocsClient,
+                            is_configured as gdocs_configured,
+                        )
+
+                        if gdocs_configured():
+                            gdocs = GoogleDocsClient()
+                            deal_folder = gdocs.create_or_get_deal_folder(resolved_name)
+
+                            # List files in the deal folder
+                            folder_files = gdocs.list_folder_files(deal_folder["folder_id"])
+                            for f in folder_files:
+                                doc_sources.append({
+                                    "file_id": f["file_id"],
+                                    "name": f["name"],
+                                    "mime_type": f.get("mime_type", ""),
+                                    "source": "drive",
+                                })
+                    except Exception as e:
+                        logger.warning("Deal folder setup failed: %s", e)
+
+                    # Scan Attio notes for document URLs
+                    if record_id:
+                        try:
+                            note_urls = attio.extract_document_urls_from_notes(
+                                record_id, exclude_url=deck_url,
+                            )
+                            for u in note_urls:
+                                doc_sources.append({
+                                    "url": u["url"],
+                                    "name": u["url"].split("/")[-1] or u["url"],
+                                    "source": "attio_note",
+                                    "note_title": u.get("note_title"),
+                                })
+                        except Exception as e:
+                            logger.warning("Attio note URL scan failed: %s", e)
+
+                    # Build document checklist using state
+                    unprocessed_doc_count = 0
+                    if doc_sources:
+                        output_dir = str(get_output_dir(resolved_name))
+                        state_mgr = StateManager(resolved_name, output_dir)
+                        checklist_docs = []
+                        for ds in doc_sources:
+                            is_processed = state_mgr.is_document_processed(ds["name"])
+                            checklist_docs.append({
+                                "name": ds["name"],
+                                "processed": is_processed,
+                                "source": ds.get("source", ""),
+                            })
+                            if not is_processed:
+                                unprocessed_doc_count += 1
+                        folder_url = deal_folder["folder_url"] if deal_folder else None
+                        blocks.extend(format_document_checklist(checklist_docs, folder_url))
+
                     n = len(transcripts)
+                    extra = ""
+                    if deck_url:
+                        extra = " + deck"
+                    if unprocessed_doc_count:
+                        extra += f" + {unprocessed_doc_count} doc(s)"
                     blocks.append({
                         "type": "section",
-                        "text": {"type": "mrkdwn", "text": f":rocket: Processing {n} transcript(s) chronologically..."},
+                        "text": {"type": "mrkdwn", "text": f":rocket: Creating investment memo and open questions from {n} transcript(s){extra}..."},
                     })
                     ack_msg = client.chat_postMessage(
                         channel=channel_id,
                         blocks=blocks,
-                        text=f"Found {resolved_name} in Attio. Processing {n} transcript(s)...",
+                        text=f"Found {resolved_name} in Attio. Creating memo from {n} transcript(s)...",
                     )
                     thread_ts = ack_msg["ts"]
 
@@ -149,6 +229,10 @@ def _register_handlers(bolt_app: App):
                             "company_name": resolved_name,
                             "call_stage": call_stage,
                             "skip_evals": True,
+                            "deck_url": deck_url,
+                            "deal": deal,
+                            "deal_folder": deal_folder,
+                            "doc_sources": doc_sources,
                         },
                         daemon=True,
                     )
@@ -335,6 +419,10 @@ def _run_pipeline_async(
     company_name: str | None = None,
     call_stage: int | None = None,
     skip_evals: bool = True,
+    deck_url: str | None = None,
+    deal: dict | None = None,
+    deal_folder: dict | None = None,
+    doc_sources: list[dict] | None = None,
 ):
     """Run the pipeline in a background thread and post results to the thread.
 
@@ -362,6 +450,10 @@ def _run_pipeline_async(
                 call_stage=call_stage,
                 output_dir=output_dir,
                 skip_evals=skip_evals,
+                deck_url=deck_url,
+                deal=deal,
+                deal_folder=deal_folder,
+                doc_sources=doc_sources,
             )
         else:
             # --- Single-transcript flow (modal) ---
@@ -382,7 +474,7 @@ def _run_pipeline_async(
                 company_name = ext_company.get("name")
 
         # Post final results from the last pipeline run
-        _post_pipeline_results(client, channel_id, thread_ts, result, company_name)
+        _post_pipeline_results(client, channel_id, thread_ts, result, company_name, deal_folder=deal_folder)
 
     except anthropic.RateLimitError:
         _post_blocks(
@@ -418,11 +510,22 @@ def _run_multi_transcript_pipeline(
     call_stage: int | None,
     output_dir: str | None,
     skip_evals: bool,
+    deck_url: str | None = None,
+    deal: dict | None = None,
+    deal_folder: dict | None = None,
+    doc_sources: list[dict] | None = None,
 ) -> dict:
     """Process multiple transcripts chronologically, skipping already-processed calls.
 
+    Optionally fetches a deck PDF from ``deck_url`` and passes it to the first
+    pipeline run.  Downloads unprocessed documents from Drive/Attio notes and
+    passes them alongside the deck.  After all runs complete, writes extracted
+    data back to Attio.
+
     Returns the result dict from the last pipeline run (the most complete memo).
     """
+    import tempfile
+
     # Reverse to oldest-first (Attio returns newest-first)
     ordered = list(reversed(transcripts))
     total = len(ordered)
@@ -432,8 +535,72 @@ def _run_multi_transcript_pipeline(
     if output_dir and company_name:
         state_mgr = StateManager(company_name, output_dir)
 
+    # --- Fetch deck PDF if URL provided ---
+    deck_path = None
+    temp_dirs: list[Path] = []
+
+    if deck_url:
+        try:
+            from src.ingestion.deck_fetcher import fetch_deck, detect_url_type
+
+            url_type = detect_url_type(deck_url)
+            type_label = {"google_drive": "Google Drive", "docsend": "DocSend"}.get(url_type, "URL")
+            _post_blocks(slack_client, channel_id, thread_ts, format_deck_progress(type_label))
+
+            dest_dir = Path(tempfile.mkdtemp(prefix="memo_deck_"))
+            temp_dirs.append(dest_dir)
+            deck_path = fetch_deck(deck_url, dest_dir)
+
+            if deck_path:
+                logger.info("Deck fetched: %s (%d KB)", deck_path, deck_path.stat().st_size // 1024)
+            else:
+                _post_blocks(
+                    slack_client, channel_id, thread_ts,
+                    [{"type": "context", "elements": [
+                        {"type": "mrkdwn", "text": ":warning: Could not fetch deck. Continuing without it."},
+                    ]}],
+                )
+        except Exception as e:
+            logger.warning("Deck fetch failed: %s", e)
+            _post_blocks(
+                slack_client, channel_id, thread_ts,
+                [{"type": "context", "elements": [
+                    {"type": "mrkdwn", "text": f":warning: Deck fetch failed: {e}. Continuing without it."},
+                ]}],
+            )
+
+    # --- Download unprocessed documents ---
+    doc_paths: list[str] = []
+    doc_names_downloaded: list[str] = []
+
+    if doc_sources and state_mgr:
+        unprocessed = [ds for ds in doc_sources if not state_mgr.is_document_processed(ds["name"])]
+        if unprocessed:
+            try:
+                from src.ingestion.deck_fetcher import fetch_multiple_docs
+
+                docs_dir = Path(tempfile.mkdtemp(prefix="memo_docs_"))
+                temp_dirs.append(docs_dir)
+                fetch_results = fetch_multiple_docs(unprocessed, docs_dir)
+
+                for fr in fetch_results:
+                    if fr["success"] and fr["path"]:
+                        doc_paths.append(str(fr["path"]))
+                        doc_names_downloaded.append(fr["name"])
+
+                if doc_paths:
+                    _post_blocks(
+                        slack_client, channel_id, thread_ts,
+                        [{"type": "context", "elements": [
+                            {"type": "mrkdwn", "text": f":page_facing_up: Downloaded {len(doc_paths)} document(s) for processing"},
+                        ]}],
+                    )
+            except Exception as e:
+                logger.warning("Document download failed: %s", e)
+
     result = None
     processed_count = 0
+    first_run = True
 
     for idx, note in enumerate(ordered, 1):
         text = note.get("content_plaintext", "")
@@ -454,6 +621,16 @@ def _run_multi_transcript_pipeline(
             format_multi_call_progress(idx, total, theme_name),
         )
 
+        # Pass deck + docs only on the first pipeline run (they don't change between calls)
+        documents = None
+        if first_run:
+            all_docs = []
+            if deck_path:
+                all_docs.append(str(deck_path))
+            all_docs.extend(doc_paths)
+            if all_docs:
+                documents = all_docs
+
         # Run pipeline (state accumulates via use_state=True)
         result = run_pipeline(
             text,
@@ -463,8 +640,27 @@ def _run_multi_transcript_pipeline(
             client=anthropic_client,
             company_name=company_name,
             use_state=True,
+            documents=documents,
         )
         processed_count += 1
+
+        # Post enrichment stats if we used docs on this run
+        if first_run and documents and result:
+            enrichment = result.get("extraction", {}).get("_enrichment_stats")
+            if enrichment:
+                _post_blocks(slack_client, channel_id, thread_ts, format_deck_enriched(enrichment))
+
+        first_run = False
+
+        # Mark downloaded documents as processed after successful first run
+        if processed_count == 1 and doc_names_downloaded and state_mgr:
+            for doc_name in doc_names_downloaded:
+                source = "drive"
+                for ds in (doc_sources or []):
+                    if ds["name"] == doc_name:
+                        source = ds.get("source", "drive")
+                        break
+                state_mgr.add_processed_document(doc_name, source=source)
 
         # Reload state manager so next iteration sees updated calls_processed
         if state_mgr:
@@ -491,11 +687,123 @@ def _run_multi_transcript_pipeline(
         else:
             result = {"extraction": {}, "gap_analysis": {}, "memo": "", "contradictions": []}
 
+    # --- Write extracted data back to Attio ---
+    if deal and result.get("extraction"):
+        _write_back_to_attio(
+            slack_client, channel_id, thread_ts,
+            extraction=result["extraction"],
+            deal=deal,
+            calls_processed=state_mgr.state.get("calls_processed", []) if state_mgr else [],
+        )
+
+    # Clean up temp directories (deck + docs)
+    for temp_dir in temp_dirs:
+        try:
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except OSError:
+            pass
+
     return result
+
+
+# --- Extraction → Attio field mapping ---
+
+# Maps extraction JSON paths to Attio deal field slugs
+EXTRACTION_TO_ATTIO = {
+    "company.industry": "sector",
+    "round_dynamics.raising_amount": "target_raise",
+    "round_dynamics.valuation": "initial_round_valuation_cap",
+    "round_dynamics.instrument": "funding_round",
+}
+
+# Deal stage labels based on calls processed
+_DEAL_STAGE_LABELS = {
+    1: "Call 1 Complete",
+    2: "Call 2 Complete",
+    3: "Call 3 Complete",
+}
+
+
+def _extract_nested(data: dict, dotted_key: str):
+    """Extract a value from a nested dict using dot notation (e.g. 'company.industry')."""
+    parts = dotted_key.split(".")
+    current = data
+    for part in parts:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    # Handle attributed values ({value, source} dicts)
+    if isinstance(current, dict) and "value" in current:
+        current = current["value"]
+    return current
+
+
+def _is_valid_value(val) -> bool:
+    """Check if a value is non-empty and not a TBD placeholder."""
+    if val is None:
+        return False
+    if isinstance(val, str):
+        s = val.strip().lower()
+        return bool(s) and not s.startswith("[tbd") and s != "tbd"
+    return True
+
+
+def _write_back_to_attio(
+    slack_client,
+    channel_id: str,
+    thread_ts: str,
+    *,
+    extraction: dict,
+    deal: dict,
+    calls_processed: list[int],
+):
+    """Map extracted fields to Attio deal fields and write back."""
+    entry_id = deal.get("entry_id")
+    if not entry_id:
+        logger.warning("No entry_id in deal data, skipping Attio write-back")
+        return
+
+    updates = {}
+    written_fields = []
+
+    for ext_path, attio_field in EXTRACTION_TO_ATTIO.items():
+        val = _extract_nested(extraction, ext_path)
+        existing = deal.get(attio_field)
+
+        # Only write if extracted value is valid and Attio field is empty
+        if _is_valid_value(val) and not _is_valid_value(existing):
+            updates[attio_field] = val
+            written_fields.append(attio_field.replace("_", " ").title())
+
+    # Update deal stage based on highest call processed
+    if calls_processed:
+        max_call = max(calls_processed)
+        stage_label = _DEAL_STAGE_LABELS.get(max_call)
+        if stage_label:
+            updates["deal_stage"] = stage_label
+            written_fields.append("Deal Stage")
+
+    if not updates:
+        return
+
+    try:
+        attio = AttioClient()
+        attio.update_deal_entry(entry_id, updates)
+        _post_blocks(slack_client, channel_id, thread_ts, format_attio_writeback(written_fields))
+    except Exception as e:
+        logger.warning("Attio write-back failed: %s", e)
+        _post_blocks(
+            slack_client, channel_id, thread_ts,
+            [{"type": "context", "elements": [
+                {"type": "mrkdwn", "text": f":warning: Attio write-back failed: {e}"},
+            ]}],
+        )
 
 
 def _post_pipeline_results(
     client, channel_id: str, thread_ts: str, result: dict, company_name: str | None,
+    *, deal_folder: dict | None = None,
 ):
     """Post the final pipeline results to the Slack thread."""
     # 1. Post extraction summary
@@ -526,8 +834,8 @@ def _post_pipeline_results(
                 initial_comment=file_info["initial_comment"],
             )
 
-    # 4. Google Docs export
-    _export_google_doc(client, channel_id, thread_ts, memo, company_name)
+    # 4. Google Docs export (place in deal folder if available)
+    _export_google_doc(client, channel_id, thread_ts, memo, company_name, deal_folder=deal_folder)
 
     # 5. Post eval report (if available)
     eval_report = result.get("eval_report")
@@ -540,8 +848,12 @@ def _post_pipeline_results(
 
 def _export_google_doc(
     client, channel_id: str, thread_ts: str, memo: str, company_name: str | None,
+    *, deal_folder: dict | None = None,
 ):
-    """Export memo to Google Docs if configured. Fails gracefully."""
+    """Export memo to Google Docs if configured. Fails gracefully.
+
+    Places the doc inside the deal folder when available.
+    """
     try:
         from src.integrations.google_docs import GoogleDocsClient, is_configured as gdocs_configured
 
@@ -549,7 +861,8 @@ def _export_google_doc(
             return
 
         gdocs = GoogleDocsClient()
-        doc_info = gdocs.create_memo_doc(memo, company_name)
+        folder_id = deal_folder["folder_id"] if deal_folder else None
+        doc_info = gdocs.create_memo_doc(memo, company_name, folder_id=folder_id)
         _post_blocks(
             client, channel_id, thread_ts,
             format_google_doc_link(doc_info["doc_url"], doc_info["title"]),

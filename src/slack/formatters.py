@@ -520,6 +520,124 @@ def format_google_doc_link(doc_url: str, title: str) -> list[dict]:
     ]
 
 
+def format_deck_progress(source: str) -> list[dict]:
+    """Format a progress message for deck fetching."""
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f":page_facing_up: Fetching deck from {source}..."},
+        },
+    ]
+
+
+def format_deck_enriched(stats: dict) -> list[dict]:
+    """Format a message after deck enrichment completes."""
+    new_fields = stats.get("new_fields", 0)
+    updated_fields = stats.get("updated_fields", 0)
+    parts = []
+    if new_fields:
+        parts.append(f"+{new_fields} new fields")
+    if updated_fields:
+        parts.append(f"{updated_fields} updated")
+    detail = ", ".join(parts) if parts else "no new fields"
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f":white_check_mark: Deck enriched extraction: {detail}"},
+        },
+    ]
+
+
+def format_attio_writeback(fields: list[str]) -> list[dict]:
+    """Format a message after writing data back to Attio."""
+    if not fields:
+        return []
+    field_list = ", ".join(fields)
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f":arrows_counterclockwise: Updated Attio: {field_list}"},
+        },
+    ]
+
+
+def format_deal_summary(deal: dict) -> list[dict]:
+    """Format a summary of deal data from Attio."""
+    lines = [":briefcase: *Deal Data from Attio:*"]
+
+    field_labels = {
+        "sector": "Sector",
+        "funding_round": "Funding Round",
+        "target_raise": "Target Raise",
+        "initial_round_valuation_cap": "Valuation/Cap",
+        "deal_stage": "Deal Stage",
+        "deal_quality": "Deal Quality",
+        "source": "Source",
+    }
+
+    for field, label in field_labels.items():
+        val = deal.get(field)
+        if val is not None and val != "":
+            if isinstance(val, (int, float)):
+                # Format currency values
+                if val >= 1_000_000:
+                    lines.append(f"  {label}: ${val / 1_000_000:.1f}M")
+                elif val >= 1_000:
+                    lines.append(f"  {label}: ${val / 1_000:.0f}K")
+                else:
+                    lines.append(f"  {label}: {val}")
+            else:
+                lines.append(f"  {label}: {val}")
+
+    if len(lines) == 1:
+        return []  # No deal data to show
+
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+        },
+    ]
+
+
+def format_document_checklist(
+    documents: list[dict],
+    folder_url: str | None = None,
+) -> list[dict]:
+    """Format a document list with processed/unprocessed status.
+
+    Each doc in documents should have: name (str), processed (bool), source (str).
+
+    Args:
+        documents: List of document dicts.
+        folder_url: Optional link to the Drive folder.
+
+    Returns:
+        Block Kit blocks showing the checklist.
+    """
+    if not documents:
+        return []
+
+    lines = [":file_folder: *Documents:*"]
+    for doc in documents:
+        name = doc.get("name", "Unknown")
+        processed = doc.get("processed", False)
+        source = doc.get("source", "")
+        emoji = ":white_check_mark:" if processed else ":x:"
+        source_label = f" ({source})" if source else ""
+        lines.append(f"{emoji} {name}{source_label}")
+
+    if folder_url:
+        lines.append(f":link: <{folder_url}|Open Drive folder>")
+
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": _truncate("\n".join(lines), _BLOCK_TEXT_LIMIT)},
+        },
+    ]
+
+
 def format_no_company(company_name: str) -> list[dict]:
     """Format a 'company not found' message."""
     return [
