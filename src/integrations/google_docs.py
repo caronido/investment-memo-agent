@@ -73,8 +73,12 @@ class GoogleDocsClient:
                 info, scopes=self.SCOPES
             )
         elif raw_path:
+            # Resolve relative paths against the project root (where .env lives)
+            path = Path(raw_path)
+            if not path.is_absolute():
+                path = Path(__file__).resolve().parent.parent.parent / raw_path
             credentials = service_account.Credentials.from_service_account_file(
-                raw_path, scopes=self.SCOPES
+                str(path), scopes=self.SCOPES
             )
         else:
             raise ValueError(
