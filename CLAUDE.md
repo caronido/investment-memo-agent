@@ -173,9 +173,9 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 **Completed sessions:** 0-7
 
-**Current session:** 7 (Memo Evals + Prompt Optimization) — completed
+**Current session:** 8 (End-to-End Pipeline) — completed
 
-**Next up:** Session 8 (End-to-End Pipeline)
+**Next up:** Session 9 (Multi-Call State Management)
 
 > Update this section at the end of every Claude Code session.
 
@@ -201,6 +201,8 @@ python -m src.pipeline --transcript data/transcripts/sample.txt --call-stage 1 -
 python -m evals.eval_extraction --transcript data/transcripts/sample.txt --ground-truth data/ground_truth/sample_gt.json
 python -m evals.eval_gap_analysis --extraction data/output/extraction.json --call-stage 1
 python -m evals.eval_memo --memo data/output/memo_draft.md --extraction data/output/extraction.json
+python -m evals.eval_pipeline
+python -m evals.eval_pipeline --transcript data/transcripts/sample_lazo_call1.txt
 python -m evals.run_all
 
 # Run Slack bot (local, socket mode)
@@ -234,7 +236,7 @@ Track what was built, what was learned, and what to carry forward.
 | 5 | Gap analysis evals: eval_gap_analysis.py (programmatic + judge), gap_judge.py (specificity, stage-appropriateness, usefulness). 8 programmatic checks including stage targeting and doc alignment. | Keyword-group matching works better than exact phrases for doc alignment. Stage targeting check (60% threshold) catches misaligned questions. | Lazo Call 1: 8/8 programmatic, 5.0/5 judge (spec=5, stage=5, use=5) |
 | 6 | Memo generator: generator.py + prompts.py (initial gen + update flow). Supports existing_memo param for multi-call updates. Updated all scope refs: Nido is an SPV network investing in early-stage companies across US and LatAm. | Section guide approach (WRITE vs TBD per call stage) produces well-structured memos. 8192 max_tokens needed for full memo output. | Lazo Call 1: 13 sections, 15 TBD placeholders, readable draft |
 | 7 | Memo eval suite: memo_judge.py (4-dimension LLM judge), eval_memo.py (7 programmatic checks + judge), ab_test_memo.py (A/B test runner), prompt_variants.py (3 variants). v3 skeptical analyst wins, set as default. Added load_dotenv() fix to all judge files. | Skeptical analyst lens improves analytical quality (3.0→4.0) without hurting factual accuracy. Explicit "N/5" format instruction needed for scoring rubric compliance. Factual accuracy is the highest bar — winner sorted by fact first. | v3 winner: 4.5/5 overall (fact=5.0, tmpl=5.0, anal=4.0, comp=4.0). 7/7 programmatic. |
-| 8 | | | |
+| 8 | End-to-end pipeline: src/pipeline.py (run_pipeline orchestrator with shared client, --skip-evals flag, file output), evals/eval_pipeline.py (cross-transcript pipeline eval runner with combined summary table). CLI for both modules. | Deferred eval imports keep --skip-evals fast. Progress to stderr / memo to stdout enables piping. Single shared Anthropic client across all stages avoids repeated init. | Pending live run |
 | 9 | | | |
 | 10 | | | |
 | 11 | | | |
