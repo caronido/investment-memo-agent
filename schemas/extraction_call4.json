@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Call 4 Extraction - General / Other",
+  "description": "Structured extraction for calls that don't fit the standard 3-call sequence. Covers a broad set of fields from all call types.",
+  "type": "object",
+  "properties": {
+    "call_stage": {
+      "type": "integer",
+      "const": 4
+    },
+    "company": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "one_liner": { "type": ["string", "null"], "description": "One-sentence description of what the company does" },
+        "industry": { "type": ["string", "null"] },
+        "geography": { "type": ["string", "null"], "description": "Primary market/region" },
+        "stage": { "type": ["string", "null"], "description": "e.g., pre-seed, seed, Series A" }
+      },
+      "required": ["name"]
+    },
+    "founders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "role": { "type": ["string", "null"] },
+          "background": { "type": ["string", "null"] }
+        },
+        "required": ["name"]
+      }
+    },
+    "round_dynamics": {
+      "type": "object",
+      "properties": {
+        "raising_amount": { "type": ["string", "null"] },
+        "valuation": { "type": ["string", "null"] },
+        "instrument": { "type": ["string", "null"] },
+        "use_of_funds": { "type": ["string", "null"] }
+      }
+    },
+    "product": {
+      "type": "object",
+      "properties": {
+        "description": { "type": ["string", "null"] },
+        "key_features": { "type": "array", "items": { "type": "string" } },
+        "product_stage": { "type": ["string", "null"] }
+      }
+    },
+    "business_model": {
+      "type": "object",
+      "properties": {
+        "revenue_model": { "type": ["string", "null"] },
+        "pricing": { "type": ["string", "null"] },
+        "target_customer": { "type": ["string", "null"] }
+      }
+    },
+    "traction": {
+      "type": "object",
+      "properties": {
+        "arr_mrr": { "type": ["string", "null"] },
+        "customers": { "type": ["string", "null"] },
+        "growth_rate": { "type": ["string", "null"] },
+        "key_metrics": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "gtm_strategy": {
+      "type": "object",
+      "properties": {
+        "icp_definition": { "type": ["string", "null"] },
+        "sales_motion": { "type": ["string", "null"] },
+        "willingness_to_pay": { "type": ["string", "null"] }
+      }
+    },
+    "competitive_landscape": {
+      "type": "object",
+      "properties": {
+        "direct_competitors": { "type": "array", "items": { "type": "string" } },
+        "differentiation": { "type": ["string", "null"] }
+      }
+    },
+    "concerns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "document_requests": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": { "type": "string" },
+          "source_type": { "type": "string", "enum": ["transcript", "deck", "financial_model", "other"] },
+          "quote": { "type": "string" }
+        }
+      }
+    }
+  },
+  "required": ["call_stage", "company"]
+}
