@@ -47,8 +47,7 @@ class GoogleDocsClient:
 
     SCOPES = [
         "https://www.googleapis.com/auth/documents",
-        "https://www.googleapis.com/auth/drive.file",
-        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive",
     ]
 
     def __init__(
@@ -110,6 +109,7 @@ class GoogleDocsClient:
             fields="files(id,webViewLink)",
             supportsAllDrives=True,
             includeItemsFromAllDrives=True,
+            corpora="allDrives",
         ).execute()
 
         files = response.get("files", [])
@@ -170,6 +170,7 @@ class GoogleDocsClient:
             fields="files(id,name,mimeType,size,createdTime)",
             supportsAllDrives=True,
             includeItemsFromAllDrives=True,
+            corpora="allDrives",
             orderBy="createdTime",
         ).execute()
 

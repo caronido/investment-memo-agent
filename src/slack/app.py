@@ -168,7 +168,7 @@ def _register_handlers(bolt_app: App):
                                     "source": "drive",
                                 })
                     except Exception as e:
-                        logger.warning("Deal folder setup failed: %s", e)
+                        logger.warning("Deal folder setup failed: %s", e, exc_info=True)
 
                     # Scan Attio notes for document URLs
                     if record_id:
