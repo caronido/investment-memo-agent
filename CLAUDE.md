@@ -171,11 +171,11 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 ## Current Status
 
-**Completed sessions:** 0-4
+**Completed sessions:** 0-5
 
-**Current session:** 4 (Gap Analysis) — completed
+**Current session:** 5 (Gap Analysis Evals) — completed
 
-**Next up:** Session 5 (Gap Analysis Evals)
+**Next up:** Session 6 (Memo Generation)
 
 > Update this section at the end of every Claude Code session.
 
@@ -231,7 +231,7 @@ Track what was built, what was learned, and what to carry forward.
 | 2 | Extraction eval suite: extraction_judge.py (LLM-as-judge with Haiku), eval_extraction.py (programmatic + judge + runner with summary table), ground truth for Lazo call 1, baselines.json | Flexible GT matching (substring/contains) works well for varied extraction wording. Pre-computed extractions speed up eval runs. | Call 1: 10/10 programmatic, 4.0/5 judge. Call 2: 4/4 programmatic, 4.0/5 judge |
 | 3 | Prompt variants (v1 straightforward, v2 analyst persona, v3 chain-of-thought) + A/B test script. Updated all prompts: bilingual support (not Mexico-specific), angel syndicate (not VC fund). v1 wins, set as default. | Simpler prompts outperform persona/CoT variants on signal-to-noise. GT pricing signals need flexible matching (35 not 35,000). | v1: 4.17 avg, v2: 4.0 avg, v3: 3.83 avg |
 | 4 | Gap analysis module: analyzer.py + prompts.py with call-stage-aware question generation. After Call 1 focuses on product/tech for Call 2, after Call 2 focuses on GTM for Call 3, after Call 3 only remaining items. | Call-stage-aware prompting produces specific, non-generic questions grounded in actual extraction data. Memo template section definitions are key context for gap identification. | Lazo Call 1: 12 questions, 6 doc requests, 5 data quality flags |
-| 5 | | | |
+| 5 | Gap analysis evals: eval_gap_analysis.py (programmatic + judge), gap_judge.py (specificity, stage-appropriateness, usefulness). 8 programmatic checks including stage targeting and doc alignment. | Keyword-group matching works better than exact phrases for doc alignment. Stage targeting check (60% threshold) catches misaligned questions. | Lazo Call 1: 8/8 programmatic, 5.0/5 judge (spec=5, stage=5, use=5) |
 | 6 | | | |
 | 7 | | | |
 | 8 | | | |
