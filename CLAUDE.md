@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-**memo-agent** is an AI-powered pipeline that generates structured investment memos from founder call transcripts for Nido Ventures, a seed-stage VC fund focused on B2B companies in Latin America. The system follows a three-call evaluation process (Founder Story → Product Deep Dive → GTM Validation), extracting structured data from each call, identifying gaps, generating/updating a memo draft, and evaluating output quality.
+**memo-agent** is an AI-powered pipeline that generates structured investment memos from founder call transcripts for Nido Ventures, an angel syndicate focused on B2B companies in Latin America. The system follows a three-call evaluation process (Founder Story → Product Deep Dive → GTM Validation), extracting structured data from each call, identifying gaps, generating/updating a memo draft, and evaluating output quality.
 
 The interface is a Slack bot triggered on-demand with `/memo [company]`.
 
@@ -137,7 +137,7 @@ For multi-call flows, `src/state/manager.py` persists accumulated data per compa
 
 1. **Evals are built alongside features, not after.** Every module has a corresponding eval suite. Prompt changes are validated against the eval suite before being committed.
 2. **Three eval types per module:** Programmatic (schema, type checks, known facts), LLM-as-judge (qualitative scoring on rubric), and human review (Renata validates quality).
-3. **Bilingual handling:** Transcripts may be Spanish/English mixed. Extraction normalizes to English. The memo output is in English.
+3. **Bilingual handling:** Transcripts may be in Spanish, English, or a mix of both. Extraction normalizes to English. The memo output is in English.
 4. **Human-in-the-loop:** The agent drafts; the investment team reviews. The system never makes autonomous investment decisions.
 5. **Source attribution:** Every extracted data point tracks its source (transcript, deck, financial model) for traceability.
 
@@ -171,11 +171,11 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 ## Current Status
 
-**Completed sessions:** 0 (Scaffolding), 1 (Transcript Extraction), 2 (Extraction Eval Suite)
+**Completed sessions:** 0 (Scaffolding), 1 (Transcript Extraction), 2 (Extraction Eval Suite), 3 (Extraction Prompt Optimization)
 
-**Current session:** 2 (Extraction Eval Suite) — completed
+**Current session:** 3 (Extraction Prompt Optimization) — completed
 
-**Next up:** Session 3 (Extraction A/B Testing)
+**Next up:** Session 4 (Gap Analysis)
 
 > Update this section at the end of every Claude Code session.
 
@@ -229,7 +229,7 @@ Track what was built, what was learned, and what to carry forward.
 | 0 | Scaffolding | Not applicable | Not applicable |
 | 1 | Implemented transcript extraction | Added a new schema for call 4 and updated the extractor to handle it. This allows for more flexible extraction of data from calls that don't fit the standard 3-call sequence and handles the case when there are more than 3 calls. | Not applicable |
 | 2 | Extraction eval suite: extraction_judge.py (LLM-as-judge with Haiku), eval_extraction.py (programmatic + judge + runner with summary table), ground truth for Lazo call 1, baselines.json | Flexible GT matching (substring/contains) works well for varied extraction wording. Pre-computed extractions speed up eval runs. | Call 1: 10/10 programmatic, 4.0/5 judge. Call 2: 4/4 programmatic, 4.0/5 judge |
-| 3 | | | |
+| 3 | Prompt variants (v1 straightforward, v2 analyst persona, v3 chain-of-thought) + A/B test script. Updated all prompts: bilingual support (not Mexico-specific), angel syndicate (not VC fund). v1 wins, set as default. | Simpler prompts outperform persona/CoT variants on signal-to-noise. GT pricing signals need flexible matching (35 not 35,000). | v1: 4.17 avg, v2: 4.0 avg, v3: 3.83 avg |
 | 4 | | | |
 | 5 | | | |
 | 6 | | | |

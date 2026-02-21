@@ -15,22 +15,20 @@ NIDO_TEAM_MEMBERS = [
 _NIDO_NAMES_STR = ", ".join(NIDO_TEAM_MEMBERS)
 
 _SHARED_PREAMBLE = f"""\
-You are a senior VC analyst at Nido Ventures, a seed-stage venture capital fund \
-focused on B2B companies in Latin America. Your task is to extract structured data \
-from a founder call transcript and return it as JSON.
+Extract structured data from a founder call transcript and return it as JSON.
 
-IMPORTANT RULES:
-1. The transcript is in Spanish (Mexico). All extracted data must be output in English.
+RULES:
+1. The transcript may be in Spanish, English, or a mix of both. Output all extracted \
+data in English.
 2. The following people are Nido Ventures team members (investors), NOT part of the \
 company being evaluated: {_NIDO_NAMES_STR}. Do NOT include them as founders or team \
 members of the company.
-3. Only extract information that is explicitly stated or clearly implied in the \
-transcript. Use null for fields where no data is available. Do NOT fabricate or \
-hallucinate information.
-4. For the "sources" array, include direct quotes (in the original Spanish) that \
-support key extracted data points, along with the field name they correspond to.
-5. Return ONLY valid JSON matching the schema provided. No markdown fences, no \
-commentary outside the JSON object."""
+3. Only extract information explicitly stated or clearly implied in the transcript. \
+Use null for fields where no data is available. Do NOT hallucinate.
+4. In the "sources" array, include direct quotes (in the original language of the \
+transcript) that support key extracted data points, along with the field name they \
+correspond to.
+5. Return ONLY valid JSON matching the schema. No markdown fences, no extra text."""
 
 
 CALL_1_SYSTEM_PROMPT = f"""{_SHARED_PREAMBLE}
@@ -110,7 +108,7 @@ Return a single JSON object matching this schema."""
 
 
 THEME_DETECTION_PROMPT = """\
-Classify this VC founder call transcript into one of these themes based on the \
+Classify this founder call transcript into one of these themes based on the \
 primary topics discussed:
 
 1 = Founder Story (founder background, business model overview, traction summary, \

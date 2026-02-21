@@ -2,7 +2,7 @@
   "company_name": "Lazo",
   "founders": ["Daniel Romero", "Alexi"],
   "revenue_model": "Hardware-as-a-Service",
-  "pricing_signals": ["35,000", "47,000", "MXN", "monthly"],
+  "pricing_signals": ["35", "47", "MXN", "month"],
   "valuation_signals": ["7", "10", "post-money"],
   "customer_names": ["Bimbo", "Salsillo"]
 }
