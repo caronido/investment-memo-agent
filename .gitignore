@@ -10,6 +10,9 @@ build/
 # Environment
 .env
 
+# Credentials
+credentials/
+
 # Testing
 .pytest_cache/
 htmlcov/

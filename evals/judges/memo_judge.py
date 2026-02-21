@@ -86,11 +86,13 @@ def judge_memo(
         f"{memo}"
     )
 
+    messages = [{"role": "user", "content": user_message}]
+
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=2048,
         system=JUDGE_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
+        messages=messages,
     )
 
     response_text = response.content[0].text.strip()
@@ -102,7 +104,26 @@ def judge_memo(
         end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
         response_text = "\n".join(lines[start:end])
 
-    scores = json.loads(response_text)
+    try:
+        scores = json.loads(response_text)
+    except json.JSONDecodeError:
+        # Retry once with feedback
+        retry_response = client.messages.create(
+            model=MODEL,
+            max_tokens=2048,
+            system=JUDGE_SYSTEM_PROMPT,
+            messages=messages + [
+                {"role": "assistant", "content": response_text},
+                {"role": "user", "content": "Your response was not valid JSON. Please return ONLY a valid JSON object with the four scoring dimensions, no extra text."},
+            ],
+        )
+        response_text = retry_response.content[0].text.strip()
+        if response_text.startswith("```"):
+            lines = response_text.split("\n")
+            start = 1 if lines[0].startswith("```") else 0
+            end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
+            response_text = "\n".join(lines[start:end])
+        scores = json.loads(response_text)
 
     # Compute overall score
     dimension_scores = [

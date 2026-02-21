@@ -1,0 +1,316 @@
+from __future__ import annotations
+
+"""Attio CRM API client.
+
+Searches for companies, fetches records, and retrieves notes/transcripts
+from Attio. Used by the Slack bot to auto-pull data when /memo [company]
+is invoked.
+
+Requires ATTIO_API_KEY environment variable.
+
+API docs: https://docs.attio.com/rest-api
+"""
+
+import logging
+import os
+from typing import Any
+
+import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://api.attio.com/v2"
+
+
+class AttioClient:
+    """Client for the Attio CRM REST API."""
+
+    def __init__(self, api_key: str | None = None):
+        self.api_key = api_key or os.environ.get("ATTIO_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                "ATTIO_API_KEY not set. Provide it as argument or set in .env"
+            )
+        self._client = httpx.Client(
+            base_url=BASE_URL,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=30.0,
+        )
+
+    def search_companies(self, query: str, limit: int = 5) -> list[dict]:
+        """Search for companies by name using fuzzy matching.
+
+        Args:
+            query: Company name or search term (max 256 chars).
+            limit: Max results to return (default 5).
+
+        Returns:
+            List of company result dicts with keys:
+            record_id, name, domains, object_slug, web_url.
+        """
+        response = self._client.post(
+            "/objects/records/search",
+            json={
+                "query": query[:256],
+                "objects": ["companies"],
+                "limit": limit,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        results = []
+        for item in data.get("data", []):
+            record_id = item.get("id", {}).get("record_id")
+            results.append({
+                "record_id": record_id,
+                "name": item.get("record_text", ""),
+                "domains": item.get("domains", []),
+                "object_slug": item.get("object_slug", "companies"),
+                "image_url": item.get("record_image"),
+            })
+
+        return results
+
+    def get_company(self, record_id: str) -> dict:
+        """Fetch a full company record by ID.
+
+        Args:
+            record_id: UUID of the company record.
+
+        Returns:
+            Dict with company details: record_id, name, web_url, values.
+        """
+        response = self._client.get(
+            f"/objects/companies/records/{record_id}",
+        )
+        response.raise_for_status()
+        data = response.json().get("data", {})
+
+        return {
+            "record_id": data.get("id", {}).get("record_id"),
+            "web_url": data.get("web_url"),
+            "created_at": data.get("created_at"),
+            "values": _flatten_values(data.get("values", {})),
+        }
+
+    def get_notes(
+        self, record_id: str, limit: int = 50
+    ) -> list[dict]:
+        """Fetch notes attached to a company record.
+
+        Notes often contain call transcripts or meeting summaries.
+
+        Args:
+            record_id: UUID of the parent record.
+            limit: Max notes to return.
+
+        Returns:
+            List of note dicts with: note_id, title, content_plaintext,
+            content_markdown, created_at.
+        """
+        response = self._client.get(
+            "/notes",
+            params={
+                "parent_object": "companies",
+                "parent_record_id": record_id,
+                "limit": limit,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        notes = []
+        for item in data.get("data", []):
+            notes.append({
+                "note_id": item.get("id", {}).get("note_id"),
+                "title": item.get("title", ""),
+                "content_plaintext": item.get("content_plaintext", ""),
+                "content_markdown": item.get("content_markdown", ""),
+                "created_at": item.get("created_at"),
+            })
+
+        return notes
+
+    def find_transcripts(self, record_id: str) -> list[dict]:
+        """Find notes that look like call transcripts.
+
+        Filters notes by length and content heuristics (speaker patterns,
+        timestamps, etc.).
+
+        Args:
+            record_id: UUID of the company record.
+
+        Returns:
+            List of transcript-like notes, sorted by created_at desc.
+        """
+        notes = self.get_notes(record_id)
+
+        transcripts = []
+        for note in notes:
+            text = note.get("content_plaintext", "")
+            # Heuristic: transcripts are long and contain speaker patterns
+            if len(text) < 500:
+                continue
+            # Look for speaker turn indicators
+            has_speakers = any(
+                indicator in text.lower()
+                for indicator in [
+                    "speaker ", ":", ">> ", "interviewer", "founder",
+                    "renata", "maria", "roberto",  # Nido team members
+                ]
+            )
+            if has_speakers or len(text) > 2000:
+                transcripts.append(note)
+
+        # Sort by created_at descending (most recent first)
+        transcripts.sort(
+            key=lambda n: n.get("created_at", ""), reverse=True
+        )
+        return transcripts
+
+    def search_by_domain(self, domain: str) -> list[dict]:
+        """Search for companies by domain using exact match.
+
+        Args:
+            domain: Domain to search for (e.g., "lazo.us").
+
+        Returns:
+            List of company result dicts.
+        """
+        response = self._client.post(
+            "/objects/companies/records/query",
+            json={
+                "filter": {
+                    "domains": {"domain": {"$eq": domain}},
+                },
+                "limit": 5,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        results = []
+        for item in data.get("data", []):
+            record_id = item.get("id", {}).get("record_id")
+            # Extract name from values
+            name_values = item.get("values", {}).get("name", [])
+            name = ""
+            if name_values and isinstance(name_values, list):
+                active = [e for e in name_values if e.get("active_until") is None]
+                entry = active[0] if active else name_values[0]
+                name = entry.get("value", "")
+
+            results.append({
+                "record_id": record_id,
+                "name": name,
+                "object_slug": "companies",
+            })
+
+        return results
+
+    def search_and_get_company(self, query: str) -> dict | None:
+        """Search for a company by domain (preferred) or name, and return full details.
+
+        If the query contains a dot, it's treated as a domain and searched
+        via the records/query filter. Otherwise falls back to fuzzy name search.
+
+        Args:
+            query: Domain (e.g., "lazo.us") or company name.
+
+        Returns:
+            Dict with: record_id, name, web_url, values, transcripts.
+            None if company not found.
+        """
+        if "." in query:
+            results = self.search_by_domain(query)
+        else:
+            results = self.search_companies(query, limit=1)
+
+        if not results:
+            # If domain search failed, try name search as fallback
+            if "." in query:
+                name_part = query.split(".")[0]
+                results = self.search_companies(name_part, limit=1)
+            if not results:
+                return None
+
+        top = results[0]
+        record_id = top["record_id"]
+
+        company = self.get_company(record_id)
+        company["name"] = top.get("name", "")
+        company["transcripts"] = self.find_transcripts(record_id)
+
+        return company
+
+    def close(self):
+        """Close the HTTP client."""
+        self._client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
+def _flatten_values(values: dict[str, Any]) -> dict[str, Any]:
+    """Flatten Attio's nested values structure into simple key-value pairs.
+
+    Attio returns values as arrays of versioned entries. This extracts
+    the most recent active value for each attribute.
+    """
+    flat = {}
+    for attr_name, entries in values.items():
+        if not isinstance(entries, list) or not entries:
+            flat[attr_name] = None
+            continue
+
+        # Get the most recent active entry
+        active = [e for e in entries if e.get("active_until") is None]
+        entry = active[0] if active else entries[0]
+
+        # Extract the actual value based on attribute type
+        attr_type = entry.get("attribute_type", "")
+
+        if attr_type == "text":
+            flat[attr_name] = entry.get("value", "")
+        elif attr_type == "number":
+            flat[attr_name] = entry.get("value")
+        elif attr_type == "email":
+            flat[attr_name] = entry.get("email_address", "")
+        elif attr_type == "domain":
+            flat[attr_name] = entry.get("domain", "")
+        elif attr_type == "phone-number":
+            flat[attr_name] = entry.get("phone_number", "")
+        elif attr_type in ("select", "status"):
+            flat[attr_name] = entry.get("option", {}).get("title", "")
+        elif attr_type == "record-reference":
+            flat[attr_name] = entry.get("target_record_id", "")
+        elif attr_type == "currency":
+            flat[attr_name] = entry.get("currency_value")
+        elif attr_type == "date":
+            flat[attr_name] = entry.get("value")
+        elif attr_type == "checkbox":
+            flat[attr_name] = entry.get("value", False)
+        elif attr_type == "rating":
+            flat[attr_name] = entry.get("value")
+        elif attr_type == "location":
+            flat[attr_name] = entry.get("line_1", "")
+        else:
+            # Fallback: try common value keys
+            flat[attr_name] = entry.get("value", entry.get("original_value"))
+
+    return flat
+
+
+def is_configured() -> bool:
+    """Check if Attio API key is configured."""
+    return bool(os.environ.get("ATTIO_API_KEY"))

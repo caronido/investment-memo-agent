@@ -171,11 +171,11 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 ## Current Status
 
-**Completed sessions:** 0-10
+**Completed sessions:** 0-13
 
-**Current session:** 10 (Document Ingestion) — completed
+**Current session:** 13 (Multi-call Attio Flow + Google Docs Export) — completed
 
-**Next up:** Session 11 (Slack Bot Interface)
+**Next up:** Session 14 (Recommendation Engine)
 
 > Update this section at the end of every Claude Code session.
 
@@ -227,6 +227,8 @@ SLACK_BOT_TOKEN=           # Slack bot OAuth token (Session 11+)
 SLACK_APP_TOKEN=           # Slack app-level token for socket mode (Session 11+)
 SLACK_SIGNING_SECRET=      # Slack signing secret (Session 11+)
 ATTIO_API_KEY=             # Attio CRM API key (Session 12+)
+GOOGLE_SERVICE_ACCOUNT_KEY_PATH=  # Path to Google service account JSON key (Session 13+)
+GOOGLE_DRIVE_FOLDER_ID=    # Shared Google Drive folder ID for memo exports (Session 13+)
 ```
 
 ## Session Log
@@ -246,7 +248,7 @@ Track what was built, what was learned, and what to carry forward.
 | 8 | End-to-end pipeline: src/pipeline.py (run_pipeline orchestrator with shared client, --skip-evals flag, file output), evals/eval_pipeline.py (cross-transcript pipeline eval runner with combined summary table). CLI for both modules. | Deferred eval imports keep --skip-evals fast. Progress to stderr / memo to stdout enables piping. Single shared Anthropic client across all stages avoids repeated init. | Pending live run |
 | 9 | Multi-call state management: StateManager (JSON-backed per-company state), detect_contradictions (fuzzy field comparison), pipeline wiring (previous_extractions + existing_memo), eval_multicall.py (7 progression checks: TBD decreasing, all calls processed, content preservation, contradiction detection, memo growth, state file valid, memo versions stored). Added `from __future__ import annotations` for Python 3.9 compat. | State accumulation works via sorted calls_processed list. Fuzzy matching (strip $, commas, substring) needed for contradiction detection across varied extraction formats. `use_state` flag keeps backward compat for isolated runs. | Pending live run |
 | 10 | Document ingestion: document_processor.py (PDF extraction via Claude vision with page-as-image and raw PDF fallback), merger.py (source-attributed field merge with discrepancy detection, k/m/b suffix-aware fuzzy matching), pipeline --documents flag, eval_ingestion.py (7 checks: enrichment gain, new fields, source attribution, combined sources, enrichment stats, discrepancy tracking, deck source type). | PDF-as-document fallback avoids pdf2image dependency. Scalar merge uses {value, source, page} attribution dicts. Array merge deduplicates by name for objects, by normalized value for scalars. Numeric suffix parsing (k/m/b) needed for cross-source fuzzy matching. | 7/7 programmatic (synthetic data) |
-| 11 | | | |
-| 12 | | | |
-| 13 | | | |
+| 11 | Slack bot Phase A: app.py (Bolt app with lazy init, /memo slash command, transcript modal, threaded async pipeline), formatters.py (Block Kit formatting for extraction summary, gap analysis checklist, memo as file upload, eval report, errors), parser.py (command parsing, transcript validation, company dir management). Modal has 4 inputs: transcript, company name, call stage, eval toggle. Pipeline runs in daemon thread; posts 5 messages to thread. | Lazy app init avoids import-time token errors. Slack 3s timeout handled by immediate ack() + background thread. Memo > 3900 chars uploaded as .md file. Private_metadata on modal carries channel_id for thread posting. | All formatters + parser unit tested |
+| 12 | Slack bot Phase B + Attio integration: attio.py (AttioClient with search_companies, search_by_domain, get_company, get_notes, find_transcripts, search_and_get_company), parser.py (subcommand support: status, questions), formatters.py (format_status, format_questions, format_attio_company, format_no_company), app.py (Attio lookup on /memo [company], auto-pull transcripts, subcommand dispatch, graceful fallback to modal when Attio unavailable or no transcripts). | Attio records filter API uses POST /objects/companies/records/query with domain filter `{"domains":{"domain":{"$eq":"example.com"}}}`. Transcript heuristic (length + speaker patterns) works for identifying call notes. Graceful degradation: Attio lookup failure falls through to modal. | Bot running, Attio connected |
+| 13 | Multi-call Attio flow + Google Docs export: app.py refactored with _run_multi_transcript_pipeline (processes all Attio transcripts oldest-first, skips already-processed calls via StateManager, posts per-call progress), _post_pipeline_results (shared result posting), _export_google_doc (graceful degradation). google_docs.py (GoogleDocsClient with markdown-to-Docs conversion: headings, bold, bullets, Manrope font, shared Drive support via supportsAllDrives). formatters.py (format_multi_call_progress, format_call_skipped, format_google_doc_link). credentials/ directory with .gitignore protection. | Shared Drives require supportsAllDrives=True in Drive API calls. Google Docs cursor-based index tracking (starts at 1) for sequential inserts. Global font applied as final batchUpdate request covering full range. detect_call_theme (Haiku) is fast enough for per-transcript classification in the multi-call loop. StateManager must be reloaded after each pipeline run to see updated calls_processed. | Google Docs export verified with formatted test memo |
 | 14 | | | |
