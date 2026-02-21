@@ -1,11 +1,17 @@
+from __future__ import annotations
+
 """End-to-end pipeline: transcript → extraction → gap analysis → memo → eval report.
 
 Orchestrates all three stages with a single shared Anthropic client,
 optionally runs evals (programmatic + LLM judge) on each stage's output.
 
+Supports multi-call state management: running Call 2 automatically loads
+Call 1's extraction and memo via StateManager.
+
 CLI:
     python -m src.pipeline --transcript data/transcripts/sample_lazo_call1.txt --call-stage 1 --output-dir data/output/lazo/
     python -m src.pipeline --transcript data/transcripts/sample_lazo_call1.txt --skip-evals
+    python -m src.pipeline --transcript data/transcripts/sample_lazo_call2.txt --output-dir data/output/lazo/ --company-name Lazo
 """
 
 import argparse
@@ -19,6 +25,7 @@ from dotenv import load_dotenv
 from src.extraction.extractor import extract_from_transcript
 from src.gap_analysis.analyzer import analyze_gaps
 from src.memo_generation.generator import generate_memo
+from src.state.manager import StateManager, detect_contradictions
 
 load_dotenv()
 
@@ -35,6 +42,8 @@ def run_pipeline(
     output_dir: str | Path | None = None,
     skip_evals: bool = False,
     client: anthropic.Anthropic | None = None,
+    company_name: str | None = None,
+    use_state: bool = True,
 ) -> dict:
     """Run the full memo-agent pipeline on a transcript.
 
@@ -44,14 +53,17 @@ def run_pipeline(
         output_dir: Directory to write output files. Prints to stdout if None.
         skip_evals: If True, skip the eval step (faster iteration).
         client: Optional shared Anthropic client.
+        company_name: Company name for state management. Auto-detected from extraction if None.
+        use_state: If True and output_dir provided, persist state across calls.
 
     Returns:
-        Dict with keys: extraction, gap_analysis, memo, eval_report (if not skipped).
+        Dict with keys: extraction, gap_analysis, memo, contradictions, eval_report (if not skipped).
     """
     if client is None:
         client = anthropic.Anthropic()
 
     result = {}
+    state_mgr = None
 
     # --- Stage 1: Extraction ---
     _log("Stage 1/3: Extracting structured data from transcript...")
@@ -60,9 +72,34 @@ def run_pipeline(
     result["extraction"] = extraction
     _log(f"  Extraction complete. Call stage: {detected_stage}, keys: {list(extraction.keys())}")
 
+    # --- Initialize state manager ---
+    if use_state and output_dir:
+        # Derive company name from extraction if not provided
+        if not company_name:
+            company = extraction.get("company", {})
+            if isinstance(company, dict):
+                company_name = company.get("name", "Unknown")
+            else:
+                company_name = "Unknown"
+
+        state_mgr = StateManager(company_name, output_dir)
+        previous_extractions = state_mgr.get_previous_extractions(detected_stage)
+        existing_memo = state_mgr.get_latest_memo()
+
+        if previous_extractions:
+            _log(f"  State: loaded {len(previous_extractions)} previous extraction(s)")
+        if existing_memo:
+            _log(f"  State: loaded existing memo ({len(existing_memo)} chars)")
+    else:
+        previous_extractions = []
+        existing_memo = None
+
     # --- Stage 2: Gap Analysis ---
     _log("Stage 2/3: Running gap analysis...")
-    gap_analysis = analyze_gaps(extraction, detected_stage, client=client)
+    gap_kwargs = {}
+    if previous_extractions:
+        gap_kwargs["previous_extractions"] = previous_extractions
+    gap_analysis = analyze_gaps(extraction, detected_stage, client=client, **gap_kwargs)
     result["gap_analysis"] = gap_analysis
     questions = gap_analysis.get("follow_up_questions", [])
     doc_requests = gap_analysis.get("document_requests", [])
@@ -70,11 +107,24 @@ def run_pipeline(
 
     # --- Stage 3: Memo Generation ---
     _log("Stage 3/3: Generating investment memo...")
-    memo = generate_memo(extraction, gap_analysis, client=client)
+    memo_kwargs = {}
+    if existing_memo:
+        memo_kwargs["existing_memo"] = existing_memo
+    if previous_extractions:
+        memo_kwargs["previous_extractions"] = previous_extractions
+    memo = generate_memo(extraction, gap_analysis, client=client, **memo_kwargs)
     result["memo"] = memo
     section_count = memo.count("\n## ")
     tbd_count = memo.lower().count("[tbd")
     _log(f"  Memo complete. {section_count} sections, {tbd_count} TBD placeholders, {len(memo)} chars")
+
+    # --- Contradiction detection ---
+    contradictions = []
+    if previous_extractions:
+        contradictions = detect_contradictions(extraction, previous_extractions, detected_stage)
+        if contradictions:
+            _log(f"  Detected {len(contradictions)} contradiction(s) with previous calls")
+    result["contradictions"] = contradictions
 
     # --- Stage 4: Evals (optional) ---
     if not skip_evals:
@@ -83,6 +133,11 @@ def run_pipeline(
         result["eval_report"] = eval_report
     else:
         _log("Evals skipped (--skip-evals)")
+
+    # --- Persist state ---
+    if state_mgr:
+        state_mgr.add_call_result(detected_stage, extraction, gap_analysis, memo, contradictions)
+        _log(f"  State saved. Calls processed: {state_mgr.state['calls_processed']}")
 
     # --- Write output files ---
     if output_dir:
@@ -201,6 +256,13 @@ def _write_outputs(result: dict, call_stage: int, output_dir: str | Path):
     memo_path.write_text(result["memo"])
     _log(f"  Wrote {memo_path}")
 
+    # Contradictions
+    contradictions = result.get("contradictions", [])
+    if contradictions:
+        contra_path = output_dir / f"contradictions_call{call_stage}.json"
+        contra_path.write_text(json.dumps(contradictions, indent=2, ensure_ascii=False))
+        _log(f"  Wrote {contra_path}")
+
     # Eval report
     if "eval_report" in result:
         eval_path = output_dir / "eval_report.json"
@@ -257,6 +319,15 @@ def main():
         action="store_true",
         help="Skip eval step for faster iteration.",
     )
+    parser.add_argument(
+        "--company-name",
+        help="Company name for state management. Auto-detected from extraction if omitted.",
+    )
+    parser.add_argument(
+        "--no-state",
+        action="store_true",
+        help="Disable state management (run call in isolation).",
+    )
 
     args = parser.parse_args()
 
@@ -273,6 +344,8 @@ def main():
         call_stage=args.call_stage,
         output_dir=args.output_dir,
         skip_evals=args.skip_evals,
+        company_name=args.company_name,
+        use_state=not args.no_state,
     )
 
     # Print summary table

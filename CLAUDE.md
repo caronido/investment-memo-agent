@@ -171,11 +171,11 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 ## Current Status
 
-**Completed sessions:** 0-7
+**Completed sessions:** 0-9
 
-**Current session:** 8 (End-to-End Pipeline) — completed
+**Current session:** 9 (Multi-Call State Management) — completed
 
-**Next up:** Session 9 (Multi-Call State Management)
+**Next up:** Session 10 (PDF Decks & Data Room Ingestion)
 
 > Update this section at the end of every Claude Code session.
 
@@ -237,7 +237,7 @@ Track what was built, what was learned, and what to carry forward.
 | 6 | Memo generator: generator.py + prompts.py (initial gen + update flow). Supports existing_memo param for multi-call updates. Updated all scope refs: Nido is an SPV network investing in early-stage companies across US and LatAm. | Section guide approach (WRITE vs TBD per call stage) produces well-structured memos. 8192 max_tokens needed for full memo output. | Lazo Call 1: 13 sections, 15 TBD placeholders, readable draft |
 | 7 | Memo eval suite: memo_judge.py (4-dimension LLM judge), eval_memo.py (7 programmatic checks + judge), ab_test_memo.py (A/B test runner), prompt_variants.py (3 variants). v3 skeptical analyst wins, set as default. Added load_dotenv() fix to all judge files. | Skeptical analyst lens improves analytical quality (3.0→4.0) without hurting factual accuracy. Explicit "N/5" format instruction needed for scoring rubric compliance. Factual accuracy is the highest bar — winner sorted by fact first. | v3 winner: 4.5/5 overall (fact=5.0, tmpl=5.0, anal=4.0, comp=4.0). 7/7 programmatic. |
 | 8 | End-to-end pipeline: src/pipeline.py (run_pipeline orchestrator with shared client, --skip-evals flag, file output), evals/eval_pipeline.py (cross-transcript pipeline eval runner with combined summary table). CLI for both modules. | Deferred eval imports keep --skip-evals fast. Progress to stderr / memo to stdout enables piping. Single shared Anthropic client across all stages avoids repeated init. | Pending live run |
-| 9 | | | |
+| 9 | Multi-call state management: StateManager (JSON-backed per-company state), detect_contradictions (fuzzy field comparison), pipeline wiring (previous_extractions + existing_memo), eval_multicall.py (7 progression checks: TBD decreasing, all calls processed, content preservation, contradiction detection, memo growth, state file valid, memo versions stored). Added `from __future__ import annotations` for Python 3.9 compat. | State accumulation works via sorted calls_processed list. Fuzzy matching (strip $, commas, substring) needed for contradiction detection across varied extraction formats. `use_state` flag keeps backward compat for isolated runs. | Pending live run |
 | 10 | | | |
 | 11 | | | |
 | 12 | | | |
