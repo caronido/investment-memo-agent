@@ -638,6 +638,89 @@ def format_document_checklist(
     ]
 
 
+def format_recommendation(recommendation: dict) -> list[dict]:
+    """Format an investment recommendation as Block Kit blocks.
+
+    Shows recommendation decision, confidence badge, 6 dimension scores,
+    and overall rationale.
+    """
+    blocks = []
+
+    rec_value = recommendation.get("recommendation", "?")
+    confidence = recommendation.get("confidence_score", 0)
+    overall_score = recommendation.get("overall_score", 0)
+
+    # Decision emoji
+    emoji_map = {"INVEST": ":white_check_mark:", "PASS": ":no_entry_sign:", "REVISIT": ":hourglass:"}
+    emoji = emoji_map.get(rec_value, ":question:")
+
+    blocks.append({
+        "type": "header",
+        "text": {"type": "plain_text", "text": f"Investment Recommendation: {rec_value}"},
+    })
+
+    blocks.append({
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": (
+            f"{emoji} *{rec_value}* | Confidence: *{confidence}%* | Overall: *{overall_score}/5*"
+        )},
+    })
+
+    # Rubric scores
+    rubric = recommendation.get("rubric", {})
+    dimension_labels = {
+        "team": "Team",
+        "market": "Market",
+        "product": "Product",
+        "business_model": "Business Model",
+        "traction": "Traction",
+        "competition": "Competition",
+    }
+    score_lines = []
+    for dim_key, label in dimension_labels.items():
+        dim = rubric.get(dim_key, {})
+        score = dim.get("score", "?")
+        rationale = dim.get("rationale", "")
+        # Truncate rationale for compact display
+        if len(rationale) > 120:
+            rationale = rationale[:117] + "..."
+        bar = _score_bar(score)
+        score_lines.append(f"{bar} *{label}* ({score}/5): {rationale}")
+
+    blocks.append({
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": _truncate("\n".join(score_lines), _BLOCK_TEXT_LIMIT)},
+    })
+
+    # Overall rationale
+    overall_rationale = recommendation.get("overall_rationale", "")
+    if overall_rationale:
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Rationale:*\n{_truncate(overall_rationale, _BLOCK_TEXT_LIMIT - 50)}"},
+        })
+
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {"type": "mrkdwn", "text": "_This is a draft recommendation for human review. It is not an investment decision._"},
+        ],
+    })
+
+    return blocks
+
+
+def _score_bar(score) -> str:
+    """Convert a 1-5 score to a visual bar."""
+    try:
+        s = int(score)
+    except (ValueError, TypeError):
+        return ":white_circle:" * 5
+    filled = ":large_green_circle:" if s >= 4 else ":large_orange_circle:" if s >= 3 else ":red_circle:"
+    return filled
+
+
 def format_no_company(company_name: str) -> list[dict]:
     """Format a 'company not found' message."""
     return [

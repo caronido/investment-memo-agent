@@ -28,6 +28,7 @@ from src.gap_analysis.analyzer import analyze_gaps
 from src.ingestion.document_processor import extract_from_document
 from src.ingestion.merger import merge_extractions
 from src.memo_generation.generator import generate_memo
+from src.recommendation.engine import generate_recommendation
 from src.state.manager import StateManager, detect_contradictions
 
 load_dotenv()
@@ -147,6 +148,26 @@ def run_pipeline(
     section_count = memo.count("\n## ")
     tbd_count = memo.lower().count("[tbd")
     _log(f"  Memo complete. {section_count} sections, {tbd_count} TBD placeholders, {len(memo)} chars")
+
+    # --- Stage 3b: Recommendation (after Call 3 only) ---
+    if detected_stage == 3:
+        _log("Stage 3b: Generating investment recommendation...")
+        all_extractions = (previous_extractions or []) + [extraction]
+        all_gap_analyses = []
+        if state_mgr:
+            for key, gap in state_mgr.state.get("gap_analyses", {}).items():
+                all_gap_analyses.append(gap)
+        all_gap_analyses.append(gap_analysis)
+
+        recommendation = generate_recommendation(
+            all_extractions, memo, all_gap_analyses, client=client,
+        )
+        result["recommendation"] = recommendation
+        _log(
+            f"  Recommendation: {recommendation.get('recommendation')} "
+            f"(confidence: {recommendation.get('confidence_score')}%, "
+            f"score: {recommendation.get('overall_score')}/5)"
+        )
 
     # --- Contradiction detection ---
     contradictions = []
@@ -299,6 +320,12 @@ def _write_outputs(result: dict, call_stage: int, output_dir: str | Path):
         contra_path = output_dir / f"contradictions_call{call_stage}.json"
         contra_path.write_text(json.dumps(contradictions, indent=2, ensure_ascii=False))
         _log(f"  Wrote {contra_path}")
+
+    # Recommendation
+    if "recommendation" in result:
+        rec_path = output_dir / "recommendation.json"
+        rec_path.write_text(json.dumps(result["recommendation"], indent=2, ensure_ascii=False))
+        _log(f"  Wrote {rec_path}")
 
     # Eval report
     if "eval_report" in result:

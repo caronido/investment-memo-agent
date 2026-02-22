@@ -46,6 +46,7 @@ from src.slack.formatters import (
     format_no_company,
     format_pipeline_complete,
     format_questions,
+    format_recommendation,
     format_status,
 )
 from src.slack.parser import (
@@ -834,15 +835,20 @@ def _post_pipeline_results(
                 initial_comment=file_info["initial_comment"],
             )
 
-    # 4. Google Docs export (place in deal folder if available)
+    # 4. Post recommendation (if available, after Call 3)
+    recommendation = result.get("recommendation")
+    if recommendation:
+        _post_blocks(client, channel_id, thread_ts, format_recommendation(recommendation))
+
+    # 5. Google Docs export (place in deal folder if available)
     _export_google_doc(client, channel_id, thread_ts, memo, company_name, deal_folder=deal_folder)
 
-    # 5. Post eval report (if available)
+    # 6. Post eval report (if available)
     eval_report = result.get("eval_report")
     if eval_report:
         _post_blocks(client, channel_id, thread_ts, format_eval_report(eval_report))
 
-    # 6. Post completion summary
+    # 7. Post completion summary
     _post_blocks(client, channel_id, thread_ts, format_pipeline_complete(result))
 
 
