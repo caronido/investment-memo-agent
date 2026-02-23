@@ -24,6 +24,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from src.extraction.extractor import extract_from_transcript
+from src.tracing import create_traced_client
 from src.gap_analysis.analyzer import analyze_gaps
 from src.ingestion.document_processor import extract_from_document
 from src.ingestion.merger import merge_extractions
@@ -65,8 +66,7 @@ def run_pipeline(
     Returns:
         Dict with keys: extraction, gap_analysis, memo, contradictions, eval_report (if not skipped).
     """
-    if client is None:
-        client = anthropic.Anthropic()
+    client = create_traced_client(output_dir=output_dir, client=client)
 
     result = {}
     state_mgr = None
@@ -189,6 +189,11 @@ def run_pipeline(
     if state_mgr:
         state_mgr.add_call_result(detected_stage, extraction, gap_analysis, memo, contradictions)
         _log(f"  State saved. Calls processed: {state_mgr.state['calls_processed']}")
+
+    # --- Record trace file path ---
+    if hasattr(client, '_client'):
+        # TracedClient — expose the trace file path
+        result["trace_file"] = str(client.messages._trace_file)
 
     # --- Write output files ---
     if output_dir:

@@ -26,6 +26,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from src.extraction.extractor import detect_call_theme, THEME_NAMES
 from src.integrations.attio import AttioClient, is_configured as attio_configured
 from src.pipeline import run_pipeline
+from src.tracing import summarize_trace
 from src.slack.formatters import (
     build_transcript_modal,
     format_acknowledgment,
@@ -467,6 +468,19 @@ def _run_pipeline_async(
                 company_name=company_name,
                 use_state=True,
             )
+
+        # Log trace summary if available
+        trace_file = result.get("trace_file")
+        if trace_file:
+            summary = summarize_trace(trace_file)
+            if summary:
+                logger.info(
+                    "Trace summary: %d calls, %d input tokens, %d output tokens, %.1fs total latency",
+                    summary["total_calls"],
+                    summary["total_input_tokens"],
+                    summary["total_output_tokens"],
+                    summary["total_latency_ms"] / 1000,
+                )
 
         # Resolve company name from extraction if not provided
         if not company_name:
