@@ -219,6 +219,9 @@ class AttioClient:
     def get_deal_entry(self, record_id: str, list_slug: str = "all_deals") -> dict | None:
         """Query an Attio list for the entry belonging to a company.
 
+        Uses the record entries endpoint to reliably find the entry_id,
+        then fetches the full entry values by ID.
+
         Args:
             record_id: UUID of the parent company record.
             list_slug: Attio list slug (default "all_deals").
@@ -228,26 +231,30 @@ class AttioClient:
             no entry is found.
         """
         try:
-            response = self._client.post(
-                f"/lists/{list_slug}/entries/query",
-                json={
-                    "filter": {
-                        "parent_record_id": record_id,
-                    },
-                    "limit": 1,
-                },
+            # Step 1: Find entry_id via the record entries endpoint
+            response = self._client.get(
+                f"/objects/companies/records/{record_id}/entries",
+                params={"limit": 100},
             )
             response.raise_for_status()
-            data = response.json()
 
-            entries = data.get("data", [])
-            if not entries:
+            target_entry_id = None
+            for e in response.json().get("data", []):
+                if e.get("list_api_slug") == list_slug:
+                    target_entry_id = e.get("entry_id")
+                    break
+
+            if not target_entry_id:
                 return None
 
-            entry = entries[0]
-            entry_id = entry.get("id", {}).get("entry_id")
+            # Step 2: Fetch full entry with values by ID
+            response = self._client.get(
+                f"/lists/{list_slug}/entries/{target_entry_id}",
+            )
+            response.raise_for_status()
+            entry = response.json().get("data", {})
             values = _flatten_values(entry.get("values", {}))
-            values["entry_id"] = entry_id
+            values["entry_id"] = target_entry_id
             return values
 
         except Exception as e:
