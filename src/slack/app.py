@@ -938,7 +938,8 @@ def _write_back_to_attio(
 
     try:
         attio = AttioClient()
-        attio.update_deal_entry(entry_id, updates)
+        list_slug = deal.get("list_api_slug")
+        attio.update_deal_entry(entry_id, updates, list_slug=list_slug)
         _post_blocks(slack_client, channel_id, thread_ts, format_attio_writeback(written_fields))
     except Exception as e:
         logger.warning("Attio write-back failed: %s", e)
@@ -1130,7 +1131,8 @@ def _upload_deck_and_update_attio(
                 existing_deck = deal.get("pitch_deck_link")
                 if not existing_deck:
                     attio = AttioClient()
-                    attio.update_deal_entry(entry_id, {"pitch_deck_link": drive_url})
+                    list_slug = deal.get("list_api_slug")
+                    attio.update_deal_entry(entry_id, {"pitch_deck_link": drive_url}, list_slug=list_slug)
                     _post_blocks(
                         client, channel_id, thread_ts,
                         format_attio_writeback(["Pitch Deck Link"]),

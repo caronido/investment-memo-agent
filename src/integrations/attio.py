@@ -216,45 +216,58 @@ class AttioClient:
 
         return results
 
-    def get_deal_entry(self, record_id: str, list_slug: str = "all_deals") -> dict | None:
-        """Query an Attio list for the entry belonging to a company.
+    def get_deal_entry(self, record_id: str, list_slug: str | None = None) -> dict | None:
+        """Find the deal list entry for a company record.
 
-        Uses the record entries endpoint to reliably find the entry_id,
-        then fetches the full entry values by ID.
+        Uses the record entries endpoint to discover which lists the
+        record belongs to, then fetches the full entry values by ID.
 
         Args:
             record_id: UUID of the parent company record.
-            list_slug: Attio list slug (default "all_deals").
+            list_slug: Optional list slug to match. If None, uses the
+                first list entry found for the record.
 
         Returns:
-            Dict with flattened entry values and ``entry_id``, or None if
-            no entry is found.
+            Dict with flattened entry values, ``entry_id``, and
+            ``list_api_slug``, or None if no entry is found.
         """
         try:
-            # Step 1: Find entry_id via the record entries endpoint
+            # Step 1: Find entry via the record entries endpoint
             response = self._client.get(
                 f"/objects/companies/records/{record_id}/entries",
                 params={"limit": 100},
             )
             response.raise_for_status()
 
-            target_entry_id = None
-            for e in response.json().get("data", []):
-                if e.get("list_api_slug") == list_slug:
-                    target_entry_id = e.get("entry_id")
-                    break
+            entries = response.json().get("data", [])
+            if not entries:
+                return None
 
-            if not target_entry_id:
+            # Match by slug if provided, otherwise use the first entry
+            target = None
+            if list_slug:
+                for e in entries:
+                    if e.get("list_api_slug") == list_slug:
+                        target = e
+                        break
+            if not target:
+                target = entries[0]
+
+            target_entry_id = target.get("entry_id")
+            resolved_slug = target.get("list_api_slug")
+
+            if not target_entry_id or not resolved_slug:
                 return None
 
             # Step 2: Fetch full entry with values by ID
             response = self._client.get(
-                f"/lists/{list_slug}/entries/{target_entry_id}",
+                f"/lists/{resolved_slug}/entries/{target_entry_id}",
             )
             response.raise_for_status()
             entry = response.json().get("data", {})
             values = _flatten_values(entry.get("values", {}))
             values["entry_id"] = target_entry_id
+            values["list_api_slug"] = resolved_slug
             return values
 
         except Exception as e:
@@ -265,7 +278,7 @@ class AttioClient:
         self,
         entry_id: str,
         updates: dict,
-        list_slug: str = "all_deals",
+        list_slug: str | None = None,
     ) -> None:
         """Write field values back to a deal entry.
 
@@ -274,8 +287,13 @@ class AttioClient:
         Args:
             entry_id: UUID of the list entry.
             updates: Dict of {attio_field_slug: value} to write.
-            list_slug: Attio list slug (default "all_deals").
+            list_slug: Attio list slug. Required — pass the
+                ``list_api_slug`` returned by :meth:`get_deal_entry`.
         """
+        if not list_slug:
+            logger.warning("No list_slug provided for update_deal_entry, skipping")
+            return
+
         # Filter out None/empty values
         filtered = {k: v for k, v in updates.items() if v is not None and v != ""}
 
