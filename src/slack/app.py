@@ -684,11 +684,13 @@ def _run_multi_transcript_pipeline(
     if output_dir and company_name:
         state_mgr = StateManager(company_name, output_dir)
 
-    # --- Fetch deck PDF if URL provided ---
+    # --- Fetch deck PDF if URL provided and not already processed ---
     deck_path = None
     temp_dirs: list[Path] = []
 
-    if deck_url:
+    deck_already_processed = state_mgr.is_document_processed("pitch_deck") if state_mgr else False
+
+    if deck_url and not deck_already_processed:
         try:
             from src.ingestion.deck_fetcher import fetch_deck, detect_url_type
 
@@ -717,6 +719,14 @@ def _run_multi_transcript_pipeline(
                     {"type": "mrkdwn", "text": f":warning: Deck fetch failed: {e}. Continuing without it."},
                 ]}],
             )
+    elif deck_url and deck_already_processed:
+        logger.info("Deck already processed, skipping fetch")
+        _post_blocks(
+            slack_client, channel_id, thread_ts,
+            [{"type": "context", "elements": [
+                {"type": "mrkdwn", "text": ":white_check_mark: Deck already processed from initial evaluation."},
+            ]}],
+        )
 
     # --- Download unprocessed documents ---
     doc_paths: list[str] = []
@@ -801,8 +811,12 @@ def _run_multi_transcript_pipeline(
 
         first_run = False
 
-        # Mark downloaded documents as processed after successful first run
-        if processed_count == 1 and doc_names_downloaded and state_mgr:
+        # Mark deck + downloaded documents as processed after successful first run
+        if processed_count == 1 and state_mgr:
+            if deck_path and not deck_already_processed:
+                state_mgr.add_processed_document(
+                    "pitch_deck", source="deck_url", metadata={"url": deck_url},
+                )
             for doc_name in doc_names_downloaded:
                 source = "drive"
                 for ds in (doc_sources or []):
@@ -1015,12 +1029,18 @@ def _run_initial_evaluation_async(
             output_dir=output_dir,
         )
 
-        # 3. Post results
+        # 3. Mark deck as processed in state so /memo doesn't re-process it
+        state_mgr = StateManager(company_name, output_dir)
+        state_mgr.add_processed_document(
+            "pitch_deck", source="deck_url", metadata={"url": deck_url},
+        )
+
+        # 4. Post results
         _post_initial_evaluation_results(
             client, channel_id, thread_ts, result, company_name,
         )
 
-        # 4. Upload deck to Drive + update Attio
+        # 5. Upload deck to Drive + update Attio
         _upload_deck_and_update_attio(
             client, channel_id, thread_ts,
             deck_url=deck_url,

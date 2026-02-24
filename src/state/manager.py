@@ -119,21 +119,28 @@ class StateManager:
         """Check if a call stage has already been processed."""
         return call_stage in self._state["calls_processed"]
 
-    def add_processed_document(self, doc_name: str, source: str = "drive") -> None:
+    def add_processed_document(
+        self, doc_name: str, source: str = "drive", metadata: dict | None = None,
+    ) -> None:
         """Record a document as processed.
 
         Args:
             doc_name: Name or identifier of the document.
             source: Where it came from — 'drive', 'attio', or 'deck_url'.
+            metadata: Optional extra info (e.g. URL, page count).
         """
         if "documents_processed" not in self._state:
             self._state["documents_processed"] = []
 
-        self._state["documents_processed"].append({
+        entry = {
             "name": doc_name,
             "source": source,
             "processed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+        if metadata:
+            entry["metadata"] = metadata
+
+        self._state["documents_processed"].append(entry)
         self.save()
 
     def is_document_processed(self, doc_name: str) -> bool:
