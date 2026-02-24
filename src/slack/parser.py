@@ -79,6 +79,21 @@ def parse_memo_command(text: str) -> dict:
     }
 
 
+def parse_initial_evaluation_command(text: str) -> dict:
+    """Parse /initial-evaluation slash command text.
+
+    Args:
+        text: The raw text after /initial-evaluation.
+
+    Returns:
+        Dict with key: company_name (str | None).
+    """
+    text = text.strip()
+    if not text:
+        return {"company_name": None}
+    return {"company_name": text}
+
+
 def find_company_dir(company_name: str, output_dir: Path | None = None) -> Path | None:
     """Find an existing company output directory by fuzzy name match.
 

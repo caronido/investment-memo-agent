@@ -28,8 +28,10 @@ from src.integrations.attio import AttioClient, is_configured as attio_configure
 from src.pipeline import run_pipeline
 from src.tracing import summarize_trace
 from src.slack.formatters import (
+    build_deck_upload_modal,
     build_transcript_modal,
     format_acknowledgment,
+    format_acknowledgment_initial_eval,
     format_attio_company,
     format_attio_writeback,
     format_call_skipped,
@@ -42,6 +44,8 @@ from src.slack.formatters import (
     format_extraction_summary,
     format_gap_analysis,
     format_google_doc_link,
+    format_initial_questions,
+    format_initial_recommendation,
     format_memo,
     format_multi_call_progress,
     format_no_company,
@@ -53,6 +57,7 @@ from src.slack.formatters import (
 from src.slack.parser import (
     find_company_dir,
     get_output_dir,
+    parse_initial_evaluation_command,
     parse_memo_command,
     validate_transcript,
 )
@@ -336,11 +341,140 @@ def _register_handlers(bolt_app: App):
         )
         thread.start()
 
+    @bolt_app.command("/initial-evaluation")
+    def handle_initial_evaluation_command(ack, command, client):
+        """Handle /initial-evaluation slash command.
+
+        Dispatches based on parsed input:
+        - /initial-evaluation              → open deck upload modal
+        - /initial-evaluation company      → Attio lookup → deck_url → run eval
+        - /initial-evaluation company      → Attio lookup → no deck → open modal
+        """
+        ack()
+
+        parsed = parse_initial_evaluation_command(command.get("text", ""))
+        company_name = parsed.get("company_name")
+        channel_id = command["channel_id"]
+        user_id = command["user_id"]
+
+        # No company → open modal
+        if not company_name:
+            _open_deck_upload_modal(client, command, company_name=None)
+            return
+
+        # Try Attio lookup for deck URL
+        if attio_configured():
+            try:
+                attio = AttioClient()
+                company = attio.search_and_get_company(company_name)
+
+                if company:
+                    resolved_name = company.get("name", company_name)
+                    deck_url = company.get("deck_url")
+
+                    if deck_url:
+                        # Found deck URL — post ack and run async
+                        blocks = format_attio_company(company)
+                        blocks.extend(format_acknowledgment_initial_eval(resolved_name))
+                        ack_msg = client.chat_postMessage(
+                            channel=channel_id,
+                            blocks=blocks,
+                            text=f"Running initial evaluation for {resolved_name}...",
+                        )
+                        thread_ts = ack_msg["ts"]
+
+                        deal = company.get("deal")
+                        record_id = company.get("record_id")
+
+                        thread = threading.Thread(
+                            target=_run_initial_evaluation_async,
+                            args=(client, channel_id, thread_ts, user_id),
+                            kwargs={
+                                "deck_url": deck_url,
+                                "company_name": resolved_name,
+                                "deal": deal,
+                                "record_id": record_id,
+                            },
+                            daemon=True,
+                        )
+                        thread.start()
+                        return
+
+                    # Company found but no deck URL — show info, open modal
+                    client.chat_postMessage(
+                        channel=channel_id,
+                        blocks=format_attio_company(company),
+                        text=f"Found {resolved_name} in Attio but no deck URL.",
+                    )
+                    _open_deck_upload_modal(client, command, company_name=resolved_name)
+                    return
+
+            except Exception as e:
+                logger.warning("Attio lookup failed for initial-evaluation: %s", e)
+                # Fall through to modal
+
+        # No Attio or company not found — open modal with company pre-filled
+        _open_deck_upload_modal(client, command, company_name=company_name)
+
+    @bolt_app.view("deck_upload_modal")
+    def handle_deck_upload_modal(ack, view, client):
+        """Handle deck upload modal submission — run initial evaluation async."""
+        ack()
+
+        values = view["state"]["values"]
+
+        company_name = (
+            values.get("ie_company_block", {})
+            .get("ie_company_input", {})
+            .get("value", "")
+        ).strip()
+
+        deck_url = (
+            values.get("ie_deck_url_block", {})
+            .get("ie_deck_url_input", {})
+            .get("value", "")
+        ).strip()
+
+        metadata = json.loads(view.get("private_metadata", "{}"))
+        channel_id = metadata.get("channel_id")
+        user_id = metadata.get("user_id")
+
+        if not channel_id:
+            logger.error("No channel_id in deck upload modal metadata")
+            return
+
+        if not company_name or not deck_url:
+            client.chat_postMessage(
+                channel=channel_id,
+                blocks=format_error("Both company name and deck URL are required."),
+                text="Missing required fields.",
+            )
+            return
+
+        # Post acknowledgment
+        ack_msg = client.chat_postMessage(
+            channel=channel_id,
+            blocks=format_acknowledgment_initial_eval(company_name),
+            text=f"Running initial evaluation for {company_name}...",
+        )
+        thread_ts = ack_msg["ts"]
+
+        thread = threading.Thread(
+            target=_run_initial_evaluation_async,
+            args=(client, channel_id, thread_ts, user_id),
+            kwargs={
+                "deck_url": deck_url,
+                "company_name": company_name,
+            },
+            daemon=True,
+        )
+        thread.start()
+
     @bolt_app.event("app_mention")
     def handle_mention(event, say):
         """Respond to @mentions with usage instructions."""
         say(
-            text="Use `/memo` to process a transcript. I'll open a form for you to paste it.",
+            text="Use `/memo` to process a transcript, or `/initial-evaluation` to screen a pitch deck.",
             thread_ts=event.get("ts"),
         )
 
@@ -816,6 +950,195 @@ def _write_back_to_attio(
         )
 
 
+def _open_deck_upload_modal(client, command: dict, *, company_name: str | None):
+    """Open the deck upload modal, optionally pre-filling company name."""
+    modal = build_deck_upload_modal(company_name=company_name)
+
+    metadata = json.dumps({
+        "channel_id": command["channel_id"],
+        "user_id": command["user_id"],
+    })
+    modal["private_metadata"] = metadata
+
+    client.views_open(
+        trigger_id=command["trigger_id"],
+        view=modal,
+    )
+
+
+def _run_initial_evaluation_async(
+    client,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    *,
+    deck_url: str,
+    company_name: str,
+    deal: dict | None = None,
+    record_id: str | None = None,
+):
+    """Run initial evaluation in a background thread and post results."""
+    import shutil
+    import tempfile
+
+    temp_dir = None
+    try:
+        anthropic_client = _get_client()
+        output_dir = str(get_output_dir(company_name))
+
+        # 1. Fetch deck PDF
+        from src.ingestion.deck_fetcher import fetch_deck, detect_url_type
+
+        url_type = detect_url_type(deck_url)
+        type_label = {"google_drive": "Google Drive", "docsend": "DocSend"}.get(url_type, "URL")
+        _post_blocks(client, channel_id, thread_ts, format_deck_progress(type_label))
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="memo_ie_deck_"))
+        deck_path = fetch_deck(deck_url, temp_dir)
+
+        if not deck_path:
+            _post_blocks(
+                client, channel_id, thread_ts,
+                format_error("Could not fetch deck from the provided URL."),
+            )
+            return
+
+        logger.info("Deck fetched for initial eval: %s (%d KB)", deck_path, deck_path.stat().st_size // 1024)
+
+        # 2. Run initial evaluation
+        from src.initial_evaluation.evaluator import run_initial_evaluation
+
+        result = run_initial_evaluation(
+            deck_path,
+            client=anthropic_client,
+            output_dir=output_dir,
+        )
+
+        # 3. Post results
+        _post_initial_evaluation_results(
+            client, channel_id, thread_ts, result, company_name,
+        )
+
+        # 4. Upload deck to Drive + update Attio
+        _upload_deck_and_update_attio(
+            client, channel_id, thread_ts,
+            deck_url=deck_url,
+            deck_path=deck_path,
+            company_name=company_name,
+            deal=deal,
+            record_id=record_id,
+        )
+
+    except anthropic.RateLimitError:
+        _post_blocks(
+            client, channel_id, thread_ts,
+            format_error("Claude API rate limit reached. Please wait a minute and try again."),
+        )
+    except anthropic.APIError as e:
+        _post_blocks(
+            client, channel_id, thread_ts,
+            format_error(f"Claude API error: {e.message}"),
+        )
+    except Exception as e:
+        logger.exception("Initial evaluation failed")
+        error_detail = str(e)
+        if len(error_detail) > 500:
+            error_detail = error_detail[:500] + "..."
+        _post_blocks(
+            client, channel_id, thread_ts,
+            format_error(f"Initial evaluation failed: {error_detail}"),
+        )
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _post_initial_evaluation_results(
+    client, channel_id: str, thread_ts: str, result: dict, company_name: str | None,
+):
+    """Post initial evaluation results to the Slack thread."""
+    # 1. Extraction summary
+    extraction = result.get("extraction", {})
+    if extraction:
+        _post_blocks(client, channel_id, thread_ts, format_extraction_summary(extraction))
+
+    # 2. Initial recommendation
+    recommendation = result.get("recommendation", {})
+    if recommendation:
+        _post_blocks(client, channel_id, thread_ts, format_initial_recommendation(recommendation))
+
+    # 3. Questions for Call 1
+    questions = result.get("questions", {})
+    if questions:
+        _post_blocks(client, channel_id, thread_ts, format_initial_questions(questions, company_name))
+
+    # 4. Completion hint
+    rec_value = recommendation.get("recommendation", "")
+    hint = ""
+    if rec_value == "WORTH_CALL":
+        hint = " Schedule Call 1, then use `/memo` to process the transcript."
+    elif rec_value == "NEEDS_MORE_INFO":
+        hint = " Consider requesting additional materials before scheduling a call."
+    _post_blocks(
+        client, channel_id, thread_ts,
+        [{"type": "section", "text": {"type": "mrkdwn", "text": f":white_check_mark: *Initial evaluation complete!*{hint}"}}],
+    )
+
+
+def _upload_deck_and_update_attio(
+    client, channel_id: str, thread_ts: str,
+    *,
+    deck_url: str,
+    deck_path: Path,
+    company_name: str,
+    deal: dict | None = None,
+    record_id: str | None = None,
+):
+    """Upload deck to Drive if not already there, and update Attio pitch_deck_link."""
+    # Skip if already a Google Drive URL
+    if "drive.google.com" in deck_url or "docs.google.com" in deck_url:
+        return
+
+    drive_url = None
+    try:
+        from src.integrations.google_docs import GoogleDocsClient, is_configured as gdocs_configured
+
+        if not gdocs_configured():
+            return
+
+        gdocs = GoogleDocsClient()
+        deal_folder = gdocs.create_or_get_deal_folder(company_name)
+        uploaded = gdocs.upload_file_to_folder(
+            str(deck_path),
+            deal_folder["folder_id"],
+            title=f"{company_name} - Pitch Deck",
+        )
+        drive_url = uploaded.get("web_view_link") or uploaded.get("file_url")
+        if drive_url:
+            _post_blocks(
+                client, channel_id, thread_ts,
+                [{"type": "section", "text": {"type": "mrkdwn", "text": f":file_folder: Deck uploaded to Drive: <{drive_url}|View>"}}],
+            )
+    except Exception as e:
+        logger.warning("Deck upload to Drive failed: %s", e)
+
+    # Update Attio pitch_deck_link if we have a new Drive URL and deal entry
+    if drive_url and deal:
+        entry_id = deal.get("entry_id")
+        if entry_id:
+            try:
+                existing_deck = deal.get("pitch_deck_link")
+                if not existing_deck:
+                    attio = AttioClient()
+                    attio.update_deal_entry(entry_id, {"pitch_deck_link": drive_url})
+                    _post_blocks(
+                        client, channel_id, thread_ts,
+                        format_attio_writeback(["Pitch Deck Link"]),
+                    )
+            except Exception as e:
+                logger.warning("Attio pitch_deck_link update failed: %s", e)
+
+
 def _post_pipeline_results(
     client, channel_id: str, thread_ts: str, result: dict, company_name: str | None,
     *, deal_folder: dict | None = None,
@@ -939,7 +1262,7 @@ def main():
     bolt_app = create_app()
 
     print("Starting memo-agent Slack bot (Socket Mode)...")
-    print("  Listening for /memo commands")
+    print("  Listening for /memo and /initial-evaluation commands")
     print("  Press Ctrl+C to stop")
 
     handler = SocketModeHandler(bolt_app, app_token)

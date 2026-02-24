@@ -721,6 +721,197 @@ def _score_bar(score) -> str:
     return filled
 
 
+def build_deck_upload_modal(company_name: str | None = None) -> dict:
+    """Build the modal view for submitting a deck URL for initial evaluation.
+
+    Args:
+        company_name: Optional pre-filled company name.
+
+    Returns:
+        Slack modal view dict with callback_id "deck_upload_modal".
+    """
+    blocks = [
+        {
+            "type": "input",
+            "block_id": "ie_company_block",
+            "label": {"type": "plain_text", "text": "Company name"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "ie_company_input",
+                "placeholder": {"type": "plain_text", "text": "e.g., Lazo"},
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "ie_deck_url_block",
+            "label": {"type": "plain_text", "text": "Deck URL"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "ie_deck_url_input",
+                "placeholder": {"type": "plain_text", "text": "Google Drive, DocSend, or direct PDF URL"},
+            },
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": "Supported: Google Drive links, DocSend links, direct PDF URLs. Upload to Drive first if you have a local file."},
+            ],
+        },
+    ]
+
+    if company_name:
+        blocks[0]["element"]["initial_value"] = company_name
+
+    return {
+        "type": "modal",
+        "callback_id": "deck_upload_modal",
+        "title": {"type": "plain_text", "text": "Initial Evaluation"},
+        "submit": {"type": "plain_text", "text": "Evaluate"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": blocks,
+    }
+
+
+def format_initial_recommendation(recommendation: dict) -> list[dict]:
+    """Format an initial deck screening recommendation as Block Kit blocks.
+
+    Shows WORTH_CALL / NOT_WORTH_CALL / NEEDS_MORE_INFO decision,
+    confidence badge, 4 dimension scores, key risks, and rationale.
+    """
+    blocks = []
+
+    rec_value = recommendation.get("recommendation", "?")
+    confidence = recommendation.get("confidence_score", 0)
+    overall_score = recommendation.get("overall_score", 0)
+
+    emoji_map = {
+        "WORTH_CALL": ":large_green_circle:",
+        "NOT_WORTH_CALL": ":red_circle:",
+        "NEEDS_MORE_INFO": ":large_yellow_circle:",
+    }
+    emoji = emoji_map.get(rec_value, ":question:")
+
+    blocks.append({
+        "type": "header",
+        "text": {"type": "plain_text", "text": f"Initial Evaluation: {rec_value}"},
+    })
+
+    blocks.append({
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": (
+            f"{emoji} *{rec_value}* | Confidence: *{confidence}%* | Overall: *{overall_score}/5*"
+        )},
+    })
+
+    # Rubric scores (4 dimensions)
+    rubric = recommendation.get("rubric", {})
+    dimension_labels = {
+        "team": "Team",
+        "market": "Market",
+        "product": "Product",
+        "business_model": "Business Model",
+    }
+    score_lines = []
+    for dim_key, label in dimension_labels.items():
+        dim = rubric.get(dim_key, {})
+        score = dim.get("score", "?")
+        rationale = dim.get("rationale", "")
+        if len(rationale) > 120:
+            rationale = rationale[:117] + "..."
+        bar = _score_bar(score)
+        score_lines.append(f"{bar} *{label}* ({score}/5): {rationale}")
+
+    blocks.append({
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": _truncate("\n".join(score_lines), _BLOCK_TEXT_LIMIT)},
+    })
+
+    # Key risks
+    key_risks = recommendation.get("key_risks", [])
+    if key_risks:
+        risk_lines = [f":warning: {risk}" for risk in key_risks[:5]]
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "*Key Risks:*\n" + "\n".join(risk_lines)},
+        })
+
+    # Overall rationale
+    overall_rationale = recommendation.get("overall_rationale", "")
+    if overall_rationale:
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Rationale:*\n{_truncate(overall_rationale, _BLOCK_TEXT_LIMIT - 50)}"},
+        })
+
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {"type": "mrkdwn", "text": "_Based solely on pitch deck — no founder calls yet._"},
+        ],
+    })
+
+    return blocks
+
+
+def format_initial_questions(questions: dict, company_name: str | None = None) -> list[dict]:
+    """Format initial evaluation questions as a numbered list.
+
+    Args:
+        questions: Dict with "questions" list (each has question/category/rationale).
+        company_name: Optional company name for the header.
+    """
+    blocks = []
+
+    title = "Questions for Call 1"
+    if company_name:
+        title += f": {company_name}"
+
+    blocks.append({
+        "type": "header",
+        "text": {"type": "plain_text", "text": title[:75]},
+    })
+
+    category_emoji = {
+        "team": ":bust_in_silhouette:",
+        "market": ":earth_americas:",
+        "product": ":gear:",
+        "business_model": ":money_with_wings:",
+        "traction": ":chart_with_upwards_trend:",
+        "competition": ":crossed_swords:",
+    }
+
+    q_list = questions.get("questions", [])
+    q_lines = []
+    for i, q in enumerate(q_list[:10], 1):
+        cat = q.get("category", "")
+        emoji = category_emoji.get(cat, ":question:")
+        text = q.get("question", "")
+        rationale = q.get("rationale", "")
+        line = f"{i}. {emoji} {text}"
+        if rationale:
+            line += f"\n    _{rationale}_"
+        q_lines.append(line)
+
+    blocks.append({
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": _truncate("\n".join(q_lines), _BLOCK_TEXT_LIMIT)},
+    })
+
+    return blocks
+
+
+def format_acknowledgment_initial_eval(company_name: str | None = None) -> list[dict]:
+    """Format the initial acknowledgment for deck evaluation."""
+    text = ":hourglass_flowing_sand: *Running initial evaluation"
+    if company_name:
+        text += f" for {company_name}"
+    text += "...*\nAnalyzing pitch deck. This may take 1-2 minutes."
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+    ]
+
+
 def format_no_company(company_name: str) -> list[dict]:
     """Format a 'company not found' message."""
     return [
