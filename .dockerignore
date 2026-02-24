@@ -1,0 +1,13 @@
+.venv/
+.env
+.git/
+.claude/
+data/output/
+data/transcripts/
+data/documents/
+data/ground_truth/
+credentials/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+tests/
