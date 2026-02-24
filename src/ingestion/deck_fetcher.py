@@ -48,6 +48,11 @@ def fetch_deck(url: str, dest_dir: Path) -> Path | None:
             dest_path = dest_dir / "deck_docsend.pdf"
             return _fetch_from_docsend(url, dest_path)
 
+        # Notion
+        if "notion.site" in url or "notion.so" in url:
+            dest_path = dest_dir / "deck_notion.pdf"
+            return _fetch_from_notion(url, dest_path)
+
         # Direct URL (assume PDF)
         dest_path = dest_dir / "deck_direct.pdf"
         return _fetch_direct(url, dest_path)
@@ -121,6 +126,41 @@ def _fetch_from_docsend(url: str, dest_path: Path) -> Path:
             dest_path.write_bytes(pdf_response.content)
 
     logger.info("DocSend PDF saved to %s (%d KB)", dest_path, dest_path.stat().st_size // 1024)
+    return dest_path
+
+
+def _fetch_from_notion(url: str, dest_path: Path) -> Path:
+    """Render a public Notion page with Playwright and export as PDF.
+
+    Requires the ``playwright`` package and Chromium browser:
+        pip install playwright && playwright install chromium
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise RuntimeError(
+            "Playwright is required to fetch Notion pages. Install it with:\n"
+            "  pip install -e '.[notion]' && playwright install chromium"
+        )
+
+    logger.info("Rendering Notion page with Playwright: %s", url)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="domcontentloaded")
+
+        # Wait for Notion content to render
+        try:
+            page.wait_for_selector(".notion-page-content", timeout=30_000)
+        except Exception:
+            # Fallback: wait for network to settle
+            page.wait_for_load_state("networkidle")
+
+        page.pdf(path=str(dest_path), format="A4", print_background=True)
+        browser.close()
+
+    logger.info("Notion PDF saved to %s (%d KB)", dest_path, dest_path.stat().st_size // 1024)
     return dest_path
 
 
@@ -247,4 +287,6 @@ def detect_url_type(url: str) -> str:
         return "google_drive"
     if "docsend.com" in url:
         return "docsend"
+    if "notion.site" in url or "notion.so" in url:
+        return "notion"
     return "direct"

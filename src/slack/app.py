@@ -693,7 +693,7 @@ def _run_multi_transcript_pipeline(
             from src.ingestion.deck_fetcher import fetch_deck, detect_url_type
 
             url_type = detect_url_type(deck_url)
-            type_label = {"google_drive": "Google Drive", "docsend": "DocSend"}.get(url_type, "URL")
+            type_label = {"google_drive": "Google Drive", "docsend": "DocSend", "notion": "Notion"}.get(url_type, "URL")
             _post_blocks(slack_client, channel_id, thread_ts, format_deck_progress(type_label))
 
             dest_dir = Path(tempfile.mkdtemp(prefix="memo_deck_"))
@@ -990,7 +990,7 @@ def _run_initial_evaluation_async(
         from src.ingestion.deck_fetcher import fetch_deck, detect_url_type
 
         url_type = detect_url_type(deck_url)
-        type_label = {"google_drive": "Google Drive", "docsend": "DocSend"}.get(url_type, "URL")
+        type_label = {"google_drive": "Google Drive", "docsend": "DocSend", "notion": "Notion"}.get(url_type, "URL")
         _post_blocks(client, channel_id, thread_ts, format_deck_progress(type_label))
 
         temp_dir = Path(tempfile.mkdtemp(prefix="memo_ie_deck_"))

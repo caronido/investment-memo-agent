@@ -20,6 +20,9 @@ dependencies = [
 dev = [
     "pytest",
 ]
+notion = [
+    "playwright",
+]
 
 [tool.setuptools.packages.find]
 include = ["src*", "evals*", "schemas*"]
