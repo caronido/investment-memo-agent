@@ -265,7 +265,9 @@ class AttioClient:
             )
             response.raise_for_status()
             entry = response.json().get("data", {})
-            values = _flatten_values(entry.get("values", {}))
+            # Attio returns list entry fields under "entry_values", not "values"
+            raw_values = entry.get("entry_values") or entry.get("values") or {}
+            values = _flatten_values(raw_values)
             values["entry_id"] = target_entry_id
             values["list_api_slug"] = resolved_slug
             return values
