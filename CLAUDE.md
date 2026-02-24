@@ -55,9 +55,15 @@ memo-agent/
 │   │   ├── prompts.py        # System prompts + Nido template voice
 │   │   └── prompt_variants.py # A/B test variants (Session 7)
 │   │
-│   ├── recommendation/       # Session 13: Final recommendation after Call 3
+│   ├── recommendation/       # Session 16: Final recommendation after Call 3
 │   │   ├── __init__.py
-│   │   └── engine.py         # Recommendation + scoring rubric
+│   │   ├── engine.py         # generate_recommendation + confidence scoring + CLI
+│   │   └── prompts.py        # System prompt with 6-dimension rubric anchors
+│   │
+│   ├── initial_evaluation/   # Session 17: Pre-call deck screening
+│   │   ├── __init__.py
+│   │   ├── evaluator.py      # run_initial_evaluation + recommendation + questions + CLI
+│   │   └── prompts.py        # 4-dimension rubric + Call 1 question generation prompts
 │   │
 │   ├── ingestion/            # Session 10: PDF decks, data room docs
 │   │   ├── __init__.py
@@ -88,6 +94,7 @@ memo-agent/
 │   ├── eval_memo.py          # Session 7: Memo generation evals
 │   ├── eval_multicall.py     # Session 9: Multi-call progression evals
 │   ├── eval_pipeline.py      # Session 8: End-to-end pipeline evals
+│   ├── eval_recommendation.py # Session 16: Recommendation evals + backtest
 │   │
 │   ├── ab_test_extraction.py # Session 3: Extraction prompt comparison
 │   ├── ab_test_memo.py       # Session 7: Memo prompt comparison
@@ -96,7 +103,8 @@ memo-agent/
 │       ├── __init__.py
 │       ├── extraction_judge.py
 │       ├── gap_judge.py
-│       └── memo_judge.py
+│       ├── memo_judge.py
+│       └── recommendation_judge.py
 │
 ├── data/                     # Test data (not committed to git except samples)
 │   ├── transcripts/          # Raw Grain transcripts (.txt)
@@ -120,13 +128,18 @@ memo-agent/
 
 ## Architecture
 
-The pipeline runs in four stages per call:
+The pipeline runs in four stages per call (five after Call 3):
 
 ```
 Transcript → [1. Extract] → [2. Gap Analysis] → [3. Memo Gen] → [4. Eval]
                                                         ↑
                                               Previous memo draft
                                               (for calls 2 and 3)
+
+After Call 3 only:
+  [3. Memo Gen] → [3b. Recommendation] → [4. Eval]
+                  INVEST / PASS / REVISIT
+                  + 6-dimension rubric + confidence score
 ```
 
 Each stage is a separate Claude API call with a specialized system prompt. Stages communicate through JSON schemas defined in `schemas/`. The pipeline orchestrator (`src/pipeline.py`) chains them together.
@@ -171,11 +184,11 @@ The investment memo follows this structure. Each section maps to a primary call 
 
 ## Current Status
 
-**Completed sessions:** 0-15
+**Completed sessions:** 0-17
 
-**Current session:** 15 (Per-Deal Drive Folder + Document Tracking) — completed
+**Current session:** 17 (Initial Evaluation / Pre-Call Deck Screening) — completed
 
-**Next up:** Session 16 (Recommendation Engine)
+**Next up:** Session 18
 
 > Update this section at the end of every Claude Code session.
 
@@ -210,7 +223,14 @@ python -m evals.eval_memo --memo data/output/memo_draft.md --extraction data/out
 python -m evals.eval_pipeline
 python -m evals.eval_pipeline --transcript data/transcripts/sample_lazo_call1.txt
 python -m evals.eval_ingestion --transcript data/transcripts/sample_lazo_call1.txt --pdf data/documents/English_LAZO_Pitch_Deck_design_ENERO..pdf
+python -m evals.eval_recommendation --company lazo
 python -m evals.run_all
+
+# Run recommendation engine standalone
+python -m src.recommendation.engine --extractions data/output/lazo/extraction_call1.json data/output/lazo/extraction_call2.json data/output/lazo/extraction_call3.json --memo data/output/lazo/memo_v3.md
+
+# Run initial evaluation (pre-call deck screening)
+python -m src.initial_evaluation.evaluator --pdf data/documents/English_LAZO_Pitch_Deck_design_ENERO..pdf --output-dir data/output/lazo/
 
 # Run Slack bot (local, socket mode)
 python -m src.slack.app
@@ -253,3 +273,5 @@ Track what was built, what was learned, and what to carry forward.
 | 13 | Multi-call Attio flow + Google Docs export: app.py refactored with _run_multi_transcript_pipeline (processes all Attio transcripts oldest-first, skips already-processed calls via StateManager, posts per-call progress), _post_pipeline_results (shared result posting), _export_google_doc (graceful degradation). google_docs.py (GoogleDocsClient with markdown-to-Docs conversion: headings, bold, bullets, Manrope font, shared Drive support via supportsAllDrives). formatters.py (format_multi_call_progress, format_call_skipped, format_google_doc_link). credentials/ directory with .gitignore protection. | Shared Drives require supportsAllDrives=True in Drive API calls. Google Docs cursor-based index tracking (starts at 1) for sequential inserts. Global font applied as final batchUpdate request covering full range. detect_call_theme (Haiku) is fast enough for per-transcript classification in the multi-call loop. StateManager must be reloaded after each pipeline run to see updated calls_processed. | Google Docs export verified with formatted test memo |
 | 14 | Deck fetching + Attio deal data sync: attio.py (get_deal_entry, update_deal_entry, search_and_get_company now returns deal + deck_url), deck_fetcher.py (Google Drive/DocSend/direct URL routing, PDF download), google_docs.py (download_file via Drive API), formatters.py (format_deck_progress, format_deck_enriched, format_attio_writeback, format_deal_summary), app.py (deck fetch before first pipeline run, documents=[deck_path] passed to run_pipeline, _write_back_to_attio with EXTRACTION_TO_ATTIO mapping, deal stage progression). | Attio lists API uses POST /v2/lists/{slug}/entries/query with parent_record_id filter. DocSend conversion via docsend2pdf.com/api/convert. Deck only passed to first pipeline run (doesn't change between calls). Write-back only fills empty Attio fields — never overwrites existing values. Temp deck files cleaned up after pipeline completes. drive.readonly scope needed for Drive file downloads. | Pending live test |
 | 15 | Per-deal Drive folder + document tracking: google_docs.py (create_or_get_deal_folder, list_folder_files, upload_file_to_folder, create_memo_doc now accepts folder_id), manager.py (documents_processed state, add_processed_document, is_document_processed), attio.py (extract_document_urls_from_notes — regex scan for Drive/DocSend/PDF URLs), deck_fetcher.py (fetch_document for Drive file metadata + URL, fetch_multiple_docs batch), formatters.py (format_document_checklist with checkmark/X status), app.py (folder creation on /memo, doc discovery from Drive + Attio notes, checklist in initial message, unprocessed docs passed to pipeline, memo placed in deal folder). | Drive API requires `drive` scope (not `drive.file`) and `corpora="allDrives"` for Shared Drive folder search/listing. Relative credential paths must be resolved to absolute against project root for daemon threads. Google Workspace files (Slides/Docs/Sheets) need `export_media` to PDF; native files use `get_media`. | Folder creation + memo placement verified |
+| 16 | Recommendation engine: prompts.py (6-dimension scoring rubric with 1-5 anchors, INVEST/PASS/REVISIT decision logic, draft-for-human-review emphasis), engine.py (generate_recommendation with confidence_score computation from score spread + data gaps), recommendation_judge.py (3-dimension LLM judge: evidence grounding, calibration, decision consistency), eval_recommendation.py (7 programmatic checks + judge + backtest mode). Pipeline integration: Stage 3b after memo gen when call_stage==3, recommendation.json output. Slack: format_recommendation (Block Kit with color-coded scores, rationale, confidence badge), wired into _post_pipeline_results. | Confidence score derived from score spread (stdev penalty), remaining gap count, and score extremity — not from the LLM. Backtest against Lazo produces correct PASS (matching memo's existing rubric). Calibration judge notes Business Model 2/5 may be slightly harsh — model is sound but data gaps drive the low score. | Lazo backtest: 7/7 programmatic, 3.67/5 judge (evidence=4, calibration=3, consistency=4), PASS confirmed |
+| 17 | Initial evaluation (pre-call deck screening): initial_evaluation/prompts.py (4-dimension rubric — team/market/product/business_model — with WORTH_CALL/NOT_WORTH_CALL/NEEDS_MORE_INFO decision logic + Call 1 question generation prompt), evaluator.py (run_initial_evaluation orchestrator reusing extract_from_document, generate_initial_recommendation, generate_initial_questions, _compute_initial_confidence with base 50), formatters.py (build_deck_upload_modal, format_initial_recommendation with color-coded emoji, format_initial_questions with category emoji + rationale, format_acknowledgment_initial_eval), parser.py (parse_initial_evaluation_command), app.py (/initial-evaluation command handler with Attio deck_url lookup + modal fallback, deck_upload_modal view handler, _run_initial_evaluation_async, _post_initial_evaluation_results, _upload_deck_and_update_attio for Drive upload + Attio pitch_deck_link writeback). | Deck-only confidence base is 50 (vs 70 for full 3-call recommendation) — reflects inherently lower signal from unverified deck claims. Reusing extract_from_document(call_stage=1) works well for deck extraction. 4 dimensions sufficient for deck screening — traction/competition omitted since deck-only data is unreliable for those. NEEDS_MORE_INFO is the right middle-ground decision for decks at the threshold (avg 3.0 with one dim at 2). | Lazo deck: NEEDS_MORE_INFO, 3.0/5 overall, 50% confidence, 10 questions generated (team=3, market=4, product=3, business_model=2) |
