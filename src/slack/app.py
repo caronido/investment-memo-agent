@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from src.extraction.extractor import detect_call_theme, THEME_NAMES
+from src.extraction.extractor import THEME_NAMES
 from src.integrations.attio import AttioClient, is_configured as attio_configured
 from src.pipeline import run_pipeline
 from src.tracing import summarize_trace
@@ -822,41 +822,48 @@ def _run_multi_transcript_pipeline(
     processed_count = 0
     first_run = True
 
+    # Build the list of call stages to process: one per transcript, in order,
+    # skipping stages that are already processed.  If an explicit call_stage was
+    # provided, every transcript uses that stage.  Otherwise we assign stages
+    # sequentially (1, 2, 3, …) based on chronological position, skipping any
+    # stage that the state manager says is already done.
+    already_processed = set()
+    if state_mgr:
+        already_processed = set(state_mgr.state.get("calls_processed", []))
+
+    stages_for_transcripts: list[int | None] = []
+    next_stage_candidate = 1
+    for _ in ordered:
+        if call_stage:
+            # Explicit stage: use it for all transcripts (skip if already done)
+            if call_stage in already_processed:
+                stages_for_transcripts.append(None)  # will be skipped
+            else:
+                stages_for_transcripts.append(call_stage)
+                already_processed.add(call_stage)
+        else:
+            # Sequential assignment: find the next unprocessed stage
+            while next_stage_candidate <= 4 and next_stage_candidate in already_processed:
+                next_stage_candidate += 1
+            if next_stage_candidate > 4:
+                stages_for_transcripts.append(None)  # all stages done
+            else:
+                stages_for_transcripts.append(next_stage_candidate)
+                already_processed.add(next_stage_candidate)
+                next_stage_candidate += 1
+
     for idx, note in enumerate(ordered, 1):
         text = note.get("content_plaintext", "")
         title = note.get("title", f"Transcript {idx}")
 
         try:
-            # Detect call stage for this transcript
-            detected_stage = call_stage or detect_call_theme(text, client=anthropic_client)
+            assigned_stage = stages_for_transcripts[idx - 1]
 
-            # If detected stage was already processed, assign the next unprocessed
-            # stage instead of skipping. This handles the common case where
-            # detect_call_theme misclassifies a Call 2 transcript as Call 1 because
-            # both start with founder/company background content.
-            if state_mgr and state_mgr.has_processed_call(detected_stage) and not call_stage:
-                already_processed = set(state_mgr.state.get("calls_processed", []))
-                next_stage = None
-                for candidate in range(1, 5):
-                    if candidate not in already_processed:
-                        next_stage = candidate
-                        break
-                if next_stage is None:
-                    # All stages 1-4 already processed — genuinely skip
-                    _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(detected_stage))
-                    continue
-                logger.info(
-                    "Transcript %d/%d detected as Call %d but already processed; "
-                    "reassigning to Call %d",
-                    idx, total, detected_stage, next_stage,
-                )
-                detected_stage = next_stage
-            elif state_mgr and state_mgr.has_processed_call(detected_stage):
-                # Explicit call_stage provided and already processed — skip
-                _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(detected_stage))
+            if assigned_stage is None:
+                _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(call_stage or 0))
                 continue
 
-            theme_name = THEME_NAMES.get(detected_stage, f"Call {detected_stage}")
+            theme_name = THEME_NAMES.get(assigned_stage, f"Call {assigned_stage}")
 
             # Post progress
             _post_blocks(
@@ -877,7 +884,7 @@ def _run_multi_transcript_pipeline(
             # Run pipeline (state accumulates via use_state=True)
             result = run_pipeline(
                 text,
-                call_stage=detected_stage,
+                call_stage=assigned_stage,
                 output_dir=output_dir,
                 skip_evals=skip_evals,
                 client=anthropic_client,
