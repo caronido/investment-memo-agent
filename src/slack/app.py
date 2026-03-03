@@ -73,10 +73,12 @@ _anthropic_client = None
 
 
 def _get_client() -> anthropic.Anthropic:
-    """Get or create the shared Anthropic client."""
+    """Get or create the shared Anthropic client (with retry on 429/529)."""
     global _anthropic_client
     if _anthropic_client is None:
-        _anthropic_client = anthropic.Anthropic()
+        from src.api_retry import RetryClient
+
+        _anthropic_client = RetryClient(anthropic.Anthropic())
     return _anthropic_client
 
 
@@ -765,69 +767,87 @@ def _run_multi_transcript_pipeline(
         text = note.get("content_plaintext", "")
         title = note.get("title", f"Transcript {idx}")
 
-        # Detect call stage for this transcript
-        detected_stage = call_stage or detect_call_theme(text, client=anthropic_client)
-        theme_name = THEME_NAMES.get(detected_stage, f"Call {detected_stage}")
+        try:
+            # Detect call stage for this transcript
+            detected_stage = call_stage or detect_call_theme(text, client=anthropic_client)
+            theme_name = THEME_NAMES.get(detected_stage, f"Call {detected_stage}")
 
-        # Skip if already processed
-        if state_mgr and state_mgr.has_processed_call(detected_stage):
-            _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(detected_stage))
+            # Skip if already processed
+            if state_mgr and state_mgr.has_processed_call(detected_stage):
+                _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(detected_stage))
+                continue
+
+            # Post progress
+            _post_blocks(
+                slack_client, channel_id, thread_ts,
+                format_multi_call_progress(idx, total, theme_name),
+            )
+
+            # Pass deck + docs only on the first pipeline run (they don't change between calls)
+            documents = None
+            if first_run:
+                all_docs = []
+                if deck_path:
+                    all_docs.append(str(deck_path))
+                all_docs.extend(doc_paths)
+                if all_docs:
+                    documents = all_docs
+
+            # Run pipeline (state accumulates via use_state=True)
+            result = run_pipeline(
+                text,
+                call_stage=detected_stage,
+                output_dir=output_dir,
+                skip_evals=skip_evals,
+                client=anthropic_client,
+                company_name=company_name,
+                use_state=True,
+                documents=documents,
+            )
+            processed_count += 1
+
+            # Post enrichment stats if we used docs on this run
+            if first_run and documents and result:
+                enrichment = result.get("extraction", {}).get("_enrichment_stats")
+                if enrichment:
+                    _post_blocks(slack_client, channel_id, thread_ts, format_deck_enriched(enrichment))
+
+            first_run = False
+
+            # Mark deck + downloaded documents as processed after successful first run
+            if processed_count == 1 and state_mgr:
+                if deck_path and not deck_already_processed:
+                    state_mgr.add_processed_document(
+                        "pitch_deck", source="deck_url", metadata={"url": deck_url},
+                    )
+                for doc_name in doc_names_downloaded:
+                    source = "drive"
+                    for ds in (doc_sources or []):
+                        if ds["name"] == doc_name:
+                            source = ds.get("source", "drive")
+                            break
+                    state_mgr.add_processed_document(doc_name, source=source)
+
+            # Reload state manager so next iteration sees updated calls_processed
+            if state_mgr:
+                state_mgr = StateManager(company_name, output_dir)
+
+        except Exception as e:
+            logger.exception(
+                "Failed to process transcript %d/%d (%s): %s",
+                idx, total, title, e,
+            )
+            error_detail = str(e)
+            if len(error_detail) > 200:
+                error_detail = error_detail[:200] + "..."
+            _post_blocks(
+                slack_client, channel_id, thread_ts,
+                format_error(
+                    f"Failed to process transcript {idx}/{total} ({title}): "
+                    f"{error_detail}. Continuing with remaining transcripts..."
+                ),
+            )
             continue
-
-        # Post progress
-        _post_blocks(
-            slack_client, channel_id, thread_ts,
-            format_multi_call_progress(idx, total, theme_name),
-        )
-
-        # Pass deck + docs only on the first pipeline run (they don't change between calls)
-        documents = None
-        if first_run:
-            all_docs = []
-            if deck_path:
-                all_docs.append(str(deck_path))
-            all_docs.extend(doc_paths)
-            if all_docs:
-                documents = all_docs
-
-        # Run pipeline (state accumulates via use_state=True)
-        result = run_pipeline(
-            text,
-            call_stage=detected_stage,
-            output_dir=output_dir,
-            skip_evals=skip_evals,
-            client=anthropic_client,
-            company_name=company_name,
-            use_state=True,
-            documents=documents,
-        )
-        processed_count += 1
-
-        # Post enrichment stats if we used docs on this run
-        if first_run and documents and result:
-            enrichment = result.get("extraction", {}).get("_enrichment_stats")
-            if enrichment:
-                _post_blocks(slack_client, channel_id, thread_ts, format_deck_enriched(enrichment))
-
-        first_run = False
-
-        # Mark deck + downloaded documents as processed after successful first run
-        if processed_count == 1 and state_mgr:
-            if deck_path and not deck_already_processed:
-                state_mgr.add_processed_document(
-                    "pitch_deck", source="deck_url", metadata={"url": deck_url},
-                )
-            for doc_name in doc_names_downloaded:
-                source = "drive"
-                for ds in (doc_sources or []):
-                    if ds["name"] == doc_name:
-                        source = ds.get("source", "drive")
-                        break
-                state_mgr.add_processed_document(doc_name, source=source)
-
-        # Reload state manager so next iteration sees updated calls_processed
-        if state_mgr:
-            state_mgr = StateManager(company_name, output_dir)
 
     if result is None:
         # All transcripts were already processed — load latest memo from state

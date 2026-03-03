@@ -95,7 +95,9 @@ def create_traced_client(
         A plain ``anthropic.Anthropic`` (no tracing) or a ``TracedClient``.
     """
     if client is None:
-        client = anthropic.Anthropic()
+        from src.api_retry import RetryClient
+
+        client = RetryClient(anthropic.Anthropic())
 
     if output_dir is None:
         return client
