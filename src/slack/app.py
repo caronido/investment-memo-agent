@@ -770,12 +770,34 @@ def _run_multi_transcript_pipeline(
         try:
             # Detect call stage for this transcript
             detected_stage = call_stage or detect_call_theme(text, client=anthropic_client)
-            theme_name = THEME_NAMES.get(detected_stage, f"Call {detected_stage}")
 
-            # Skip if already processed
-            if state_mgr and state_mgr.has_processed_call(detected_stage):
+            # If detected stage was already processed, assign the next unprocessed
+            # stage instead of skipping. This handles the common case where
+            # detect_call_theme misclassifies a Call 2 transcript as Call 1 because
+            # both start with founder/company background content.
+            if state_mgr and state_mgr.has_processed_call(detected_stage) and not call_stage:
+                already_processed = set(state_mgr.state.get("calls_processed", []))
+                next_stage = None
+                for candidate in range(1, 5):
+                    if candidate not in already_processed:
+                        next_stage = candidate
+                        break
+                if next_stage is None:
+                    # All stages 1-4 already processed — genuinely skip
+                    _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(detected_stage))
+                    continue
+                logger.info(
+                    "Transcript %d/%d detected as Call %d but already processed; "
+                    "reassigning to Call %d",
+                    idx, total, detected_stage, next_stage,
+                )
+                detected_stage = next_stage
+            elif state_mgr and state_mgr.has_processed_call(detected_stage):
+                # Explicit call_stage provided and already processed — skip
                 _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(detected_stage))
                 continue
+
+            theme_name = THEME_NAMES.get(detected_stage, f"Call {detected_stage}")
 
             # Post progress
             _post_blocks(
