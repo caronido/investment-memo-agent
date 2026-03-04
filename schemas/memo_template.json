@@ -25,91 +25,91 @@
     {
       "id": "executive_summary",
       "title": "Executive Summary",
-      "description": "Deal terms, round structure, check size, valuation, and a concise overview of the opportunity. Should be readable as a standalone summary for the IC.",
+      "description": "Deal terms, round structure, check size, valuation, and a concise overview of the opportunity. The ONLY section that may briefly touch all areas — keep it to a standalone summary for the IC. The rest of the memo elaborates; do not elaborate here.",
       "primary_call": 1,
       "updated_by_calls": [1, 2, 3]
     },
     {
       "id": "investment_thesis",
       "title": "Investment Thesis",
-      "description": "3-5 bullet points on why this is a compelling opportunity for Nido. Covers market timing, founder-market fit, product differentiation, and growth potential.",
+      "description": "3-5 bullet points on WHY this is a compelling investment. ONLY reasoning: market timing, founder-market fit, unfair advantages, strategic positioning. Do NOT restate what the company does, the problem, or product features — those belong in their own sections.",
       "primary_call": 1,
       "updated_by_calls": [1, 2, 3]
     },
     {
       "id": "team_founders",
       "title": "Team & Founders",
-      "description": "Founder backgrounds, relevant experience, founder-market fit, team composition, key hires needed, and advisory board.",
+      "description": "Founder backgrounds, relevant experience, founder-market fit, team composition, key hires needed, and advisory board. Do NOT discuss the product or business model here.",
       "primary_call": 1,
       "updated_by_calls": [1]
     },
     {
       "id": "problem_statement",
       "title": "Problem Statement",
-      "description": "The industry pain point, status quo, who suffers, and the cost of inaction. Should clearly articulate why the problem matters and why now.",
+      "description": "ONLY the industry pain point, status quo, who suffers, and the cost of inaction. Do NOT describe the solution or product — that belongs in Product & Technology.",
       "primary_call": 1,
       "updated_by_calls": [1, 2]
     },
     {
       "id": "product_technology",
       "title": "Product & Technology",
-      "description": "What they've built, key features, tech stack, technical architecture, defensibility/moats, AI/ML usage, integrations, and product roadmap.",
+      "description": "ONLY what they built and HOW it works: key features, tech stack, architecture, defensibility/moats, AI/ML usage, integrations, roadmap. Do NOT restate the problem — reference it briefly if needed.",
       "primary_call": 2,
       "updated_by_calls": [2]
     },
     {
       "id": "business_model",
       "title": "Business Model",
-      "description": "Revenue model (SaaS, marketplace, transactional), pricing strategy, unit economics (CAC, LTV, gross margin, payback period), and expansion revenue dynamics.",
+      "description": "ONLY how they make money: revenue model (SaaS, marketplace, transactional), pricing strategy, unit economics (CAC, LTV, gross margin, payback period), expansion revenue. Do NOT restate product features or traction numbers.",
       "primary_call": 2,
       "updated_by_calls": [2, 3]
     },
     {
       "id": "market_analysis",
       "title": "Market Analysis",
-      "description": "TAM/SAM/SOM with bottom-up sizing, market drivers, regulatory tailwinds/headwinds, and geographic considerations for LatAm.",
+      "description": "ONLY market sizing: TAM/SAM/SOM with bottom-up analysis, market drivers, regulatory tailwinds/headwinds, geographic considerations. Do NOT repeat the problem statement or product description.",
       "primary_call": 1,
       "updated_by_calls": [1, 2]
     },
     {
       "id": "gtm_strategy",
       "title": "GTM Strategy",
-      "description": "Ideal customer profile with reasoning, sales motion, sales cycle, deal size, champion and decision-maker profiles, acquisition channels, and willingness-to-pay evidence.",
+      "description": "Ideal customer profile with reasoning, sales motion, sales cycle, deal size, champion and decision-maker profiles, acquisition channels, and willingness-to-pay evidence. Do NOT restate the product or business model.",
       "primary_call": 3,
       "updated_by_calls": [3]
     },
     {
       "id": "competitive_landscape",
       "title": "Competitive Landscape",
-      "description": "Direct and indirect competitors, differentiation, right to win, competitive positioning, win/loss analysis, and sustainable advantages.",
+      "description": "ONLY positioning vs. competitors: direct and indirect competitors, differentiation, right to win, win/loss analysis, sustainable advantages. Compare features directly — do NOT restate the full product description.",
       "primary_call": 2,
       "updated_by_calls": [2, 3]
     },
     {
       "id": "traction_metrics",
       "title": "Traction & Metrics",
-      "description": "Client list, ARR/MRR, growth rate, pipeline, key KPIs (CAC, LTV, churn, NRR), and evidence of product-market fit.",
+      "description": "ONLY concrete numbers and evidence of PMF: client list, ARR/MRR, growth rate, pipeline, key KPIs (CAC, LTV, churn, NRR). Do NOT re-explain the business model or product.",
       "primary_call": 3,
       "updated_by_calls": [1, 3]
     },
     {
       "id": "financial_review",
       "title": "Financial Review",
-      "description": "Financial model assessment, revenue projections, burn rate, runway, path to profitability, and key assumptions.",
+      "description": "ONLY the financial model assessment: revenue projections, burn rate, runway, path to profitability, key assumptions. Do NOT restate traction metrics or business model mechanics.",
       "primary_call": 3,
       "updated_by_calls": [3]
     },
     {
       "id": "concerns_challenges",
       "title": "Concerns & Challenges",
-      "description": "Risks, red flags, open questions, and mitigation strategies. Accumulated across all three calls. Should be honest and actionable.",
+      "description": "Cross-cutting risks, red flags, open questions, and mitigation strategies. Synthesize NEW concerns not already flagged inline in other sections. If a risk was noted in a specific section, reference it briefly — do not repeat in full.",
       "primary_call": 1,
       "updated_by_calls": [1, 2, 3]
     },
     {
       "id": "scoring_rubric",
       "title": "Scoring Rubric",
-      "description": "Quantitative scoring (1-5) across dimensions: Team, Market, Product, Business Model, Traction, Competition. Includes rationale for each score and an overall recommendation.",
+      "description": "Quantitative scoring (1-5) across dimensions: Team, Market, Product, Business Model, Traction, Competition. Brief rationale per score referencing evidence from the relevant section — do not restate section content.",
       "primary_call": 3,
       "updated_by_calls": [3]
     }

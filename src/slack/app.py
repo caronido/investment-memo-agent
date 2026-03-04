@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from src.extraction.extractor import detect_call_theme, THEME_NAMES
+from src.extraction.extractor import THEME_NAMES
 from src.integrations.attio import AttioClient, is_configured as attio_configured
 from src.pipeline import run_pipeline
 from src.tracing import summarize_trace
@@ -128,8 +128,13 @@ def _register_handlers(bolt_app: App):
             _open_transcript_modal(client, command, parsed)
             return
 
-        # --- Subcommands: status / questions ---
-        if subcommand in ("status", "questions"):
+        # --- Reset all companies ---
+        if company_name and company_name.lower() == "reset-all":
+            _handle_reset_all(client, channel_id)
+            return
+
+        # --- Subcommands: status / questions / reset ---
+        if subcommand in ("status", "questions", "reset"):
             _handle_subcommand(client, channel_id, company_name, subcommand)
             return
 
@@ -531,6 +536,28 @@ def _handle_subcommand(client, channel_id: str, company_name: str, subcommand: s
         )
         return
 
+    if subcommand == "reset":
+        # Delete the state file to allow full reprocessing
+        state_path = company_dir / "state.json"
+        if state_path.exists():
+            state_path.unlink()
+            logger.info("Reset state for %s (deleted %s)", company_name, state_path)
+            blocks = [{
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f":recycle: State reset for *{company_name}*. Next `/memo` run will reprocess all transcripts."},
+            }]
+        else:
+            blocks = [{
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"No state file found for *{company_name}* — nothing to reset."},
+            }]
+        client.chat_postMessage(
+            channel=channel_id,
+            blocks=blocks,
+            text=f"Reset state for {company_name}",
+        )
+        return
+
     if subcommand == "status":
         blocks = format_status(company_name, state)
     else:  # questions
@@ -540,6 +567,38 @@ def _handle_subcommand(client, channel_id: str, company_name: str, subcommand: s
         channel=channel_id,
         blocks=blocks,
         text=f"{subcommand.title()} for {company_name}",
+    )
+
+
+def _handle_reset_all(client, channel_id: str):
+    """Delete state.json for every company in the output directory."""
+    from src.slack.parser import DEFAULT_OUTPUT_DIR
+
+    if not DEFAULT_OUTPUT_DIR.exists():
+        client.chat_postMessage(
+            channel=channel_id,
+            text="No output directory found — nothing to reset.",
+        )
+        return
+
+    reset_companies = []
+    for d in DEFAULT_OUTPUT_DIR.iterdir():
+        if d.is_dir():
+            state_path = d / "state.json"
+            if state_path.exists():
+                state_path.unlink()
+                reset_companies.append(d.name)
+
+    if reset_companies:
+        names = ", ".join(f"*{n}*" for n in sorted(reset_companies))
+        text = f":recycle: State reset for {len(reset_companies)} companies: {names}. Next `/memo` runs will reprocess all transcripts."
+    else:
+        text = "No state files found — nothing to reset."
+
+    client.chat_postMessage(
+        channel=channel_id,
+        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+        text=f"Reset {len(reset_companies)} companies",
     )
 
 
@@ -763,19 +822,48 @@ def _run_multi_transcript_pipeline(
     processed_count = 0
     first_run = True
 
+    # Build the list of call stages to process: one per transcript, in order,
+    # skipping stages that are already processed.  If an explicit call_stage was
+    # provided, every transcript uses that stage.  Otherwise we assign stages
+    # sequentially (1, 2, 3, …) based on chronological position, skipping any
+    # stage that the state manager says is already done.
+    already_processed = set()
+    if state_mgr:
+        already_processed = set(state_mgr.state.get("calls_processed", []))
+
+    stages_for_transcripts: list[int | None] = []
+    next_stage_candidate = 1
+    for _ in ordered:
+        if call_stage:
+            # Explicit stage: use it for all transcripts (skip if already done)
+            if call_stage in already_processed:
+                stages_for_transcripts.append(None)  # will be skipped
+            else:
+                stages_for_transcripts.append(call_stage)
+                already_processed.add(call_stage)
+        else:
+            # Sequential assignment: find the next unprocessed stage
+            while next_stage_candidate <= 4 and next_stage_candidate in already_processed:
+                next_stage_candidate += 1
+            if next_stage_candidate > 4:
+                stages_for_transcripts.append(None)  # all stages done
+            else:
+                stages_for_transcripts.append(next_stage_candidate)
+                already_processed.add(next_stage_candidate)
+                next_stage_candidate += 1
+
     for idx, note in enumerate(ordered, 1):
         text = note.get("content_plaintext", "")
         title = note.get("title", f"Transcript {idx}")
 
         try:
-            # Detect call stage for this transcript
-            detected_stage = call_stage or detect_call_theme(text, client=anthropic_client)
-            theme_name = THEME_NAMES.get(detected_stage, f"Call {detected_stage}")
+            assigned_stage = stages_for_transcripts[idx - 1]
 
-            # Skip if already processed
-            if state_mgr and state_mgr.has_processed_call(detected_stage):
-                _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(detected_stage))
+            if assigned_stage is None:
+                _post_blocks(slack_client, channel_id, thread_ts, format_call_skipped(call_stage or 0))
                 continue
+
+            theme_name = THEME_NAMES.get(assigned_stage, f"Call {assigned_stage}")
 
             # Post progress
             _post_blocks(
@@ -796,7 +884,7 @@ def _run_multi_transcript_pipeline(
             # Run pipeline (state accumulates via use_state=True)
             result = run_pipeline(
                 text,
-                call_stage=detected_stage,
+                call_stage=assigned_stage,
                 output_dir=output_dir,
                 skip_evals=skip_evals,
                 client=anthropic_client,

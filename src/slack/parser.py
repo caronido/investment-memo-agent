@@ -22,7 +22,7 @@ DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "output"
 MIN_TRANSCRIPT_LENGTH = 200
 
 # Recognized sub-commands
-SUBCOMMANDS = {"status", "questions"}
+SUBCOMMANDS = {"status", "questions", "reset"}
 
 
 def parse_memo_command(text: str) -> dict:

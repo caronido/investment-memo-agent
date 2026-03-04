@@ -72,7 +72,7 @@ def detect_call_theme(
 ) -> int:
     """Classify a transcript into a call theme (1-4) using a fast model.
 
-    Sends the first ~2000 chars of the transcript to Claude Haiku for
+    Sends the first ~6000 chars of the transcript to Claude Haiku for
     lightweight classification.
 
     Args:
@@ -85,7 +85,9 @@ def detect_call_theme(
     if client is None:
         client = anthropic.Anthropic()
 
-    excerpt = transcript[:2000]
+    # Use first ~6000 chars for better classification — 2000 was too short
+    # and caused many transcripts to look like Call 1 (founder background).
+    excerpt = transcript[:6000]
     prompt = THEME_DETECTION_PROMPT.format(transcript_excerpt=excerpt)
 
     response = client.messages.create(
