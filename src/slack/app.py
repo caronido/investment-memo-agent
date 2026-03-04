@@ -524,6 +524,11 @@ def _handle_subcommand(client, channel_id: str, company_name: str, subcommand: s
         )
         return
 
+    # Handle reset before loading state — avoids failure on corrupted state.json
+    if subcommand == "reset":
+        _reset_company_dir(client, channel_id, company_name, company_dir)
+        return
+
     try:
         mgr = StateManager(company_name, company_dir)
         state = mgr.state
@@ -533,28 +538,6 @@ def _handle_subcommand(client, channel_id: str, company_name: str, subcommand: s
             channel=channel_id,
             blocks=format_error(f"Could not load state for {company_name}: {e}"),
             text=f"Error loading state for {company_name}",
-        )
-        return
-
-    if subcommand == "reset":
-        # Delete the state file to allow full reprocessing
-        state_path = company_dir / "state.json"
-        if state_path.exists():
-            state_path.unlink()
-            logger.info("Reset state for %s (deleted %s)", company_name, state_path)
-            blocks = [{
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f":recycle: State reset for *{company_name}*. Next `/memo` run will reprocess all transcripts."},
-            }]
-        else:
-            blocks = [{
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"No state file found for *{company_name}* — nothing to reset."},
-            }]
-        client.chat_postMessage(
-            channel=channel_id,
-            blocks=blocks,
-            text=f"Reset state for {company_name}",
         )
         return
 
@@ -570,8 +553,39 @@ def _handle_subcommand(client, channel_id: str, company_name: str, subcommand: s
     )
 
 
+def _reset_company_dir(client, channel_id: str, company_name: str, company_dir: Path):
+    """Delete all pipeline output files for a company to allow full reprocessing."""
+    import shutil
+
+    state_path = company_dir / "state.json"
+    if not state_path.exists():
+        blocks = [{
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"No state file found for *{company_name}* — nothing to reset."},
+        }]
+        client.chat_postMessage(channel=channel_id, blocks=blocks, text=f"Nothing to reset for {company_name}")
+        return
+
+    # Delete all generated output files (state, extractions, memos, gaps)
+    deleted = []
+    for f in company_dir.iterdir():
+        if f.is_file() and f.suffix in (".json", ".md"):
+            f.unlink()
+            deleted.append(f.name)
+
+    logger.info("Reset %s: deleted %d files from %s", company_name, len(deleted), company_dir)
+    blocks = [{
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f":recycle: State reset for *{company_name}* ({len(deleted)} files cleared). Next `/memo` run will reprocess all transcripts.",
+        },
+    }]
+    client.chat_postMessage(channel=channel_id, blocks=blocks, text=f"Reset state for {company_name}")
+
+
 def _handle_reset_all(client, channel_id: str):
-    """Delete state.json for every company in the output directory."""
+    """Reset all companies in the output directory."""
     from src.slack.parser import DEFAULT_OUTPUT_DIR
 
     if not DEFAULT_OUTPUT_DIR.exists():
@@ -586,7 +600,10 @@ def _handle_reset_all(client, channel_id: str):
         if d.is_dir():
             state_path = d / "state.json"
             if state_path.exists():
-                state_path.unlink()
+                # Delete all generated files in the directory
+                for f in d.iterdir():
+                    if f.is_file() and f.suffix in (".json", ".md"):
+                        f.unlink()
                 reset_companies.append(d.name)
 
     if reset_companies:
