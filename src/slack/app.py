@@ -588,15 +588,26 @@ def _handle_reset_all(client, channel_id: str):
     """Reset all companies in the output directory."""
     from src.slack.parser import DEFAULT_OUTPUT_DIR
 
+    logger.info("reset-all: checking output dir %s (exists=%s)", DEFAULT_OUTPUT_DIR, DEFAULT_OUTPUT_DIR.exists())
+
+    # Also check via get_output_dir's base path in case DEFAULT_OUTPUT_DIR differs
     if not DEFAULT_OUTPUT_DIR.exists():
-        client.chat_postMessage(
-            channel=channel_id,
-            text="No output directory found — nothing to reset.",
-        )
-        return
+        # Try to find the actual output directory by checking common locations
+        alt_dir = Path(__file__).resolve().parents[1].parent / "data" / "output"
+        if alt_dir.exists() and alt_dir != DEFAULT_OUTPUT_DIR:
+            logger.info("reset-all: using alternate output dir %s", alt_dir)
+            output_dir = alt_dir
+        else:
+            client.chat_postMessage(
+                channel=channel_id,
+                text=f"No output directory found — nothing to reset.\n(Checked: `{DEFAULT_OUTPUT_DIR}`)",
+            )
+            return
+    else:
+        output_dir = DEFAULT_OUTPUT_DIR
 
     reset_companies = []
-    for d in DEFAULT_OUTPUT_DIR.iterdir():
+    for d in output_dir.iterdir():
         if d.is_dir():
             state_path = d / "state.json"
             if state_path.exists():
